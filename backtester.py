@@ -22,9 +22,30 @@ class Backtester:
     Suporta long/short, stop loss, take profit e trailing stop.
     """
 
-    def __init__(self, strategy: CombinedStrategy, initial_capital: float = 100_000.0):
+    def __init__(self, strategy: CombinedStrategy, initial_capital: float = 100_000.0,
+                 commission_per_trade: float | None = None,
+                 slippage_pct: float | None = None):
+        """
+        Args:
+            strategy: Estratégia a ser testada.
+            initial_capital: Capital inicial em R$.
+            commission_per_trade: Custo fixo por execução (entrada OU saída).
+                                  Se None, usa `config.COMMISSION_PER_TRADE`.
+            slippage_pct: Slippage aplicado ao preço de execução (ex: 0.0005 = 5 bps).
+                          Se None, usa `config.SLIPPAGE_PCT`.
+        """
+        import config as _cfg  # import local evita ciclo caso config importe este módulo no futuro
+
         self.strategy = strategy
         self.initial_capital = initial_capital
+        self.commission_per_trade = (
+            commission_per_trade if commission_per_trade is not None
+            else getattr(_cfg, "COMMISSION_PER_TRADE", 0.0)
+        )
+        self.slippage_pct = (
+            slippage_pct if slippage_pct is not None
+            else getattr(_cfg, "SLIPPAGE_PCT", 0.0)
+        )
         self.trades: list[dict] = []
         self.equity: list[float] = []
         self.equity_dates: list = []
@@ -135,24 +156,29 @@ class Backtester:
             # ── Abrir nova posição ──
             if position is None and current_date in signal_lookup:
                 for sig in signal_lookup[current_date]:
+                    # Slippage adverso na entrada (compra mais caro, vende mais barato)
+                    is_long = sig['tipo'] == 'Compra'
+                    entry_price = close * (1 + self.slippage_pct) if is_long else close * (1 - self.slippage_pct)
+
                     pos_amount = min(capital * params['max_position_pct'],
                                      capital * params['max_risk_pct'] /
-                                     max(abs(close - sig['stop_loss']) / close, 0.001))
+                                     max(abs(entry_price - sig['stop_loss']) / entry_price, 0.001))
                     pos_amount = min(pos_amount, capital * params['max_position_pct'])
 
                     if pos_amount < 1000:
                         continue
 
                     position = {
-                        'type': 'long' if sig['tipo'] == 'Compra' else 'short',
+                        'type': 'long' if is_long else 'short',
                         'entry_date': current_date,
-                        'entry_price': close,
+                        'entry_price': entry_price,
                         'stop_loss': sig['stop_loss'],
                         'take_profit': sig['preco_alvo'],
                         'amount': pos_amount,
                         'pattern': sig['estrategia'],
                     }
-                    capital -= pos_amount
+                    # Deduzir capital alocado + comissão de entrada
+                    capital -= pos_amount + self.commission_per_trade
                     break  # Um sinal por período
 
             # Equity tracking
@@ -184,13 +210,23 @@ class Backtester:
 
     def _close_position(self, position: dict, exit_price: float,
                         exit_date, reason: str) -> None:
-        """Fecha uma posição e registra o trade."""
-        if position['type'] == 'long':
-            pct = exit_price / position['entry_price'] - 1
-        else:
-            pct = position['entry_price'] / exit_price - 1
+        """Fecha uma posição e registra o trade.
 
-        pnl = position['amount'] * pct
+        Aplica slippage adverso no preço de saída e desconta a comissão de
+        saída do P&L. A comissão de entrada já foi descontada do `capital`
+        no momento da abertura, então aqui só subtraímos a de saída.
+        """
+        # Slippage adverso na saída (long vende mais barato; short recompra mais caro)
+        if position['type'] == 'long':
+            effective_exit = exit_price * (1 - self.slippage_pct)
+            pct = effective_exit / position['entry_price'] - 1
+        else:
+            effective_exit = exit_price * (1 + self.slippage_pct)
+            pct = position['entry_price'] / effective_exit - 1
+
+        gross_pnl = position['amount'] * pct
+        # Desconta a comissão de saída (a de entrada já foi debitada do capital)
+        pnl = gross_pnl - self.commission_per_trade
         position['_pnl'] = pnl
 
         self.trades.append({
@@ -198,13 +234,58 @@ class Backtester:
             'exit_date': exit_date,
             'type': position['type'],
             'entry_price': position['entry_price'],
-            'exit_price': exit_price,
+            'exit_price': effective_exit,
             'amount': position['amount'],
             'pnl': pnl,
+            'gross_pnl': gross_pnl,
+            'commission': 2 * self.commission_per_trade,  # entrada + saída
             'pct_change': pct,
             'reason': reason,
             'pattern': position['pattern'],
         })
+
+    @staticmethod
+    def _annualization_factor(data: pd.DataFrame) -> float:
+        """Calcula o fator de anualização correto para o Sharpe ratio.
+
+        Infere a periodicidade a partir do delta mediano entre timestamps e
+        retorna `sqrt(períodos por ano)`. Assume pregão da B3 de 8 horas.
+
+        Exemplos: diário → √252, 1h → √(252*8), 5m → √(252*8*12).
+        """
+        if data is None or len(data) < 2:
+            return float(np.sqrt(252))
+
+        deltas = pd.Series(data.index).diff().dropna()
+        if deltas.empty:
+            return float(np.sqrt(252))
+
+        median_sec = deltas.median().total_seconds()
+        if median_sec <= 0:
+            return float(np.sqrt(252))
+
+        # Mapeamento discreto — mais robusto que aritmética de calendário
+        # (calendário mistura fins de semana; queremos apenas horas de pregão).
+        if median_sec <= 90:              # 1m
+            periods_per_year = 252 * 8 * 60
+        elif median_sec <= 360:           # 5m
+            periods_per_year = 252 * 8 * 12
+        elif median_sec <= 1080:          # 15m
+            periods_per_year = 252 * 8 * 4
+        elif median_sec <= 2100:          # 30m
+            periods_per_year = 252 * 8 * 2
+        elif median_sec <= 5400:          # 1h
+            periods_per_year = 252 * 8
+        elif median_sec <= 21600:         # 4h
+            periods_per_year = 252 * 2
+        elif median_sec <= 129600:        # 1d (até 1.5 dia tolerância)
+            periods_per_year = 252
+        elif median_sec <= 777600:        # 1 semana
+            periods_per_year = 52
+        else:                              # mensal ou maior
+            periods_per_year = 12
+
+        return float(np.sqrt(periods_per_year))
 
     def _compute_metrics(self, final_capital: float,
                          data: pd.DataFrame) -> dict:
@@ -242,11 +323,12 @@ class Backtester:
         years = max(days / 365.0, 0.1)
         annualized = ((final_capital / self.initial_capital) ** (1 / years)) - 1
 
-        # Sharpe
+        # Sharpe anualizado corretamente em função da granularidade dos dados
         eq_series = pd.Series(self.equity, index=self.equity_dates)
-        daily_returns = eq_series.pct_change().dropna()
-        sharpe = (np.sqrt(252) * daily_returns.mean() /
-                  max(daily_returns.std(), 0.0001))
+        period_returns = eq_series.pct_change().dropna()
+        ann_factor = self._annualization_factor(data)
+        sharpe = (ann_factor * period_returns.mean() /
+                  max(period_returns.std(), 1e-9))
 
         # Pattern stats
         pattern_stats = {}
@@ -258,6 +340,8 @@ class Backtester:
             if t['pnl'] > 0:
                 pattern_stats[p]['wins'] += 1
             pattern_stats[p]['profit'] += t['pnl']
+
+        total_commission = sum(t.get('commission', 0.0) for t in self.trades)
 
         return {
             'initial_capital': self.initial_capital,
@@ -271,6 +355,8 @@ class Backtester:
             'profit_factor': profit_factor,
             'max_drawdown': max_drawdown,
             'sharpe_ratio': sharpe,
+            'total_commission': total_commission,
+            'slippage_pct': self.slippage_pct,
             'pattern_stats': pattern_stats,
         }
 
@@ -385,6 +471,8 @@ class Backtester:
         print(f"  Profit Factor:         {m.get('profit_factor', 0):>11.2f}")
         print(f"  Max Drawdown:          {m.get('max_drawdown', 0):>11.2f}%")
         print(f"  Sharpe Ratio:          {m.get('sharpe_ratio', 0):>11.2f}")
+        print(f"  Custos Totais (R$):    {m.get('total_commission', 0):>11,.2f}")
+        print(f"  Slippage (por lado):   {m.get('slippage_pct', 0) * 100:>10.3f}%")
         print("=" * 55)
 
         if self.trades:

@@ -48,10 +48,10 @@ feita em 2026-04-11. Foi escrito como parte da Fase 0 do plano de ação de refa
 ## Débito técnico ainda pendente (fases 1+)
 
 ### Crítico
-- [ ] **Sharpe ratio** (`backtester.py:248`) ainda usa `√252` hard-coded, incorreto para timeframes intraday. Deve ser calculado em função do `interval` da estratégia.
-- [ ] **`DASHBOARD_DEBUG = True`** (`config.py:32`) — nunca deve estar ligado em produção.
+- [x] ~~**Sharpe ratio** hard-coded `√252`~~ — corrigido em `backtester.py:_annualization_factor` (infere em função da granularidade dos dados, assumindo pregão B3 de 8h).
+- [x] ~~**`DASHBOARD_DEBUG = True`**~~ — agora lido de variável de ambiente (`DASHBOARD_DEBUG`), default `False`. `DASHBOARD_HOST` também default para `127.0.0.1`. `SECRET_KEY` gerado via `secrets.token_hex()`. `allow_unsafe_werkzeug` só é ligado quando `DASHBOARD_DEBUG=true`. CORS fechado por padrão (configurável via `DASHBOARD_CORS_ORIGINS`).
+- [x] ~~Ausência de **custos operacionais e slippage**~~ — `Backtester` agora aceita `commission_per_trade` e `slippage_pct` (padrões em `config.py`). Slippage adverso aplicado em entrada e saída; comissão descontada nos dois lados; `total_commission` exposto nas métricas.
 - [ ] **`yfinance` como proxy** para WIN/WDO é inadequado — considerar MT5/B3 via API real (fase 8.1).
-- [ ] Ausência de **custos operacionais e slippage** no backtester — resultados ainda inflacionados.
 
 ### Estrutura
 - [ ] Migrar arquivos flat para pacote `src/market_analysis/`.

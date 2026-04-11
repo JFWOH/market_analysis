@@ -3,6 +3,8 @@
 Servidor Flask + Socket.IO que roda análises em background
 e envia atualizações para o dashboard web.
 """
+import os
+import secrets
 import threading
 import time
 import logging
@@ -22,8 +24,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'market_analysis_secret'
-socketio = SocketIO(app, cors_allowed_origins="*")
+# SECRET_KEY: lê de FLASK_SECRET_KEY, ou gera token efêmero (perde sessões a cada restart,
+# mas é seguro). Defina a variável em produção para persistência.
+app.config['SECRET_KEY'] = os.environ.get('FLASK_SECRET_KEY') or secrets.token_hex(32)
+
+# CORS: por padrão só aceita requisições do próprio host. Para liberar origens
+# específicas, defina DASHBOARD_CORS_ORIGINS (lista separada por vírgula).
+_cors = os.environ.get('DASHBOARD_CORS_ORIGINS', '')
+_cors_origins = [o.strip() for o in _cors.split(',') if o.strip()] or None
+socketio = SocketIO(app, cors_allowed_origins=_cors_origins)
 
 # ─── Rotas ───
 
@@ -95,10 +104,17 @@ def start_background_thread():
 
 if __name__ == '__main__':
     start_background_thread()
-    socketio.run(
-        app,
-        host=config.DASHBOARD_HOST,
-        port=config.DASHBOARD_PORT,
-        debug=config.DASHBOARD_DEBUG,
-        allow_unsafe_werkzeug=True,
-    )
+    run_kwargs = {
+        'host': config.DASHBOARD_HOST,
+        'port': config.DASHBOARD_PORT,
+        'debug': config.DASHBOARD_DEBUG,
+    }
+    # `allow_unsafe_werkzeug` só é necessário — e só deve ser usado — em modo debug.
+    # Em produção, use um servidor ASGI/WSGI adequado (gunicorn, eventlet, gevent).
+    if config.DASHBOARD_DEBUG:
+        run_kwargs['allow_unsafe_werkzeug'] = True
+        logger.warning(
+            "Dashboard rodando em modo DEBUG — NÃO use em produção. "
+            "Defina DASHBOARD_DEBUG=false."
+        )
+    socketio.run(app, **run_kwargs)

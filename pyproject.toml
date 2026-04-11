@@ -1,0 +1,127 @@
+[project]
+name = "market-analysis"
+version = "0.1.0"
+description = "Sistema de análise técnica, price action, sentimento e backtesting para o mercado brasileiro."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Jeferson Wohanka" },
+]
+license = { text = "Proprietary" }
+keywords = ["trading", "backtesting", "technical-analysis", "price-action", "b3"]
+
+dependencies = [
+    # Dados e numérica
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "yfinance>=0.2.40",
+
+    # Visualização
+    "matplotlib>=3.7",
+    "plotly>=5.18",
+
+    # Dashboard web
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+
+    # Utilitários
+    "tqdm>=4.66",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "types-requests",
+]
+future = [
+    # Dependências previstas para fases 2+
+    "pandas-ta>=0.3.14b",
+    "pandera>=0.20",
+    "typer>=0.12",
+    "streamlit>=1.36",
+    "pydantic>=2.7",
+    "pyyaml>=6.0",
+    "optuna>=3.6",
+    "joblib>=1.4",
+]
+
+[project.scripts]
+market-analysis = "run:main"
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+# ────────────────────────────────────────────────────────────────────
+#  Configuração de ferramentas
+# ────────────────────────────────────────────────────────────────────
+
+[tool.setuptools]
+py-modules = [
+    "alerts",
+    "app",
+    "backtester",
+    "config",
+    "data_provider",
+    "indicators",
+    "optimizer",
+    "price_action",
+    "run",
+    "sentiment_analyzer",
+    "strategy",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    "_deprecated",
+    "venv",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "UP",  # pyupgrade
+    "W",   # pycodestyle warnings
+]
+ignore = [
+    "E501",  # line too long (ruff format resolve)
+    "B008",  # default args
+]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+ignore_missing_imports = true
+follow_imports = "silent"
+exclude = "(_deprecated|venv|build|dist)"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+    "ignore::PendingDeprecationWarning",
+]

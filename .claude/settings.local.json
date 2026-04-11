@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(git --version)",
-      "Bash(git config:*)"
+      "Bash(git config:*)",
+      "Bash(ls *.py)"
     ]
   }
 }

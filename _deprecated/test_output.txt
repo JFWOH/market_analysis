@@ -1,0 +1,2 @@
+This is a test output file.
+If you can see this, Python can write to files.

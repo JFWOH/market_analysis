@@ -4,7 +4,11 @@ import numpy as np
 import logging
 from datetime import datetime
 
-from data_provider import DataProvider
+# Importa preferencialmente da nova camada de dados; mantém fallback para legado
+try:
+    from data.providers import DataProvider
+except ImportError:
+    from data_provider import DataProvider  # type: ignore[no-redef]
 from indicators import TechnicalIndicators
 from price_action import PriceActionAnalyzer
 from sentiment_analyzer import SentimentAnalyzer

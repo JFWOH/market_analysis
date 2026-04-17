@@ -50,6 +50,13 @@ DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "5000"))
 # NUNCA deixe debug=True em produção. Controlado por variável de ambiente.
 DASHBOARD_DEBUG = _env_bool("DASHBOARD_DEBUG", default=False)
 
+# ─── API / Segurança ───
+# Se API_TOKEN estiver definido, rotas /api/* exigem "Authorization: Bearer <token>".
+# Deixe vazio para desabilitar autenticação (ex: localhost apenas).
+API_TOKEN: str = os.environ.get("API_TOKEN", "")
+# Requisições máximas por IP por minuto nas rotas /api/* e /health.
+RATE_LIMIT_PER_MINUTE: int = int(os.environ.get("RATE_LIMIT_PER_MINUTE", "60"))
+
 # ─── Alertas Email ───
 EMAIL = {
     'from': '',          # Preencher com email remetente

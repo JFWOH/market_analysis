@@ -283,127 +283,169 @@ class PriceActionAnalyzer:
     # Geração de sinais (CORRIGIDO — agora é método da classe)
     # ------------------------------------------------------------------
 
-    def gerar_sinais_entrada(self, contexto_tendencia: bool = True,
-                             min_strength: int = 7) -> list[dict]:
+    def gerar_sinais_entrada(
+        self,
+        contexto_tendencia: bool = True,
+        min_strength: int = 7,
+        ema_short_period: int = 21,
+        ema_long_period:  int = 55,
+        atr_stop_mult:    float = 1.5,
+        atr_target_mult:  float = 3.0,
+    ) -> list[dict]:
         """Gera sinais de entrada baseados em padrões de price action.
 
         Args:
             contexto_tendencia: Se True, filtra sinais pelo contexto de tendência (EMAs).
-            min_strength: Força mínima do padrão (1-10) para gerar sinal.
+            min_strength:       Força mínima do padrão (1-10) para gerar sinal.
+            ema_short_period:   Período da EMA curta para filtro de tendência.
+            ema_long_period:    Período da EMA longa para filtro de tendência.
+            atr_stop_mult:      Multiplicador ATR para stop loss.
+            atr_target_mult:    Multiplicador ATR para preço alvo.
 
         Returns:
-            Lista de dicionários com sinais de entrada.
+            Lista de dicionários com sinais de entrada (campos: data, tipo,
+            preco, stop_loss, preco_alvo, estrategia, forca).
         """
-        dados = self.dados
-        sinais = []
+        dados  = self.dados
+        sinais: list[dict] = []
 
         if len(dados) < 2:
             return sinais
 
         close = self.get_series('Close')
 
-        # ATR para stops
+        # ATR para dimensionar stops
         if 'ATR' in dados.columns:
             atr = self.get_series('ATR')
         else:
-            high = self.get_series('High')
-            low = self.get_series('Low')
+            high       = self.get_series('High')
+            low        = self.get_series('Low')
             close_prev = close.shift(1)
-            tr = pd.concat([
+            tr  = pd.concat([
                 high - low,
                 (high - close_prev).abs(),
-                (low - close_prev).abs(),
+                (low  - close_prev).abs(),
             ], axis=1).max(axis=1)
             atr = tr.rolling(window=14).mean()
 
-        # Mapeamento padrão → (coluna, força)
+        # Padrões bullish: (coluna, descrição, força)
         bullish_patterns = [
-            ('Bullish_Pin_Bar', 'Bullish Pin Bar', 8),
-            ('Bullish_Engulfing', 'Bullish Engulfing', 8),
-            ('Bullish_Doji', 'Bullish Doji', 6),
-            ('Bullish_Two_Bar_Reversal', 'Bullish Two Bar Reversal', 7),
-            ('Failed_Bear_Breakout', 'Failed Bear Breakout', 9),
+            ('Failed_Bear_Breakout',       'Failed Bear Breakout',      9),
+            ('Bullish_Pin_Bar',            'Bullish Pin Bar',            8),
+            ('Bullish_Engulfing',          'Bullish Engulfing',          8),
+            ('Bullish_Two_Bar_Reversal',   'Bullish Two Bar Reversal',   7),
+            ('Bullish_Doji',               'Bullish Doji',               6),
         ]
+        # Padrões bearish: (coluna, descrição, força)
         bearish_patterns = [
-            ('Bearish_Pin_Bar', 'Bearish Pin Bar', 8),
-            ('Bearish_Engulfing', 'Bearish Engulfing', 8),
-            ('Bearish_Doji', 'Bearish Doji', 6),
-            ('Bearish_Two_Bar_Reversal', 'Bearish Two Bar Reversal', 7),
-            ('Failed_Bull_Breakout', 'Failed Bull Breakout', 9),
+            ('Failed_Bull_Breakout',       'Failed Bull Breakout',      9),
+            ('Bearish_Pin_Bar',            'Bearish Pin Bar',            8),
+            ('Bearish_Engulfing',          'Bearish Engulfing',          8),
+            ('Bearish_Two_Bar_Reversal',   'Bearish Two Bar Reversal',   7),
+            ('Bearish_Doji',               'Bearish Doji',               6),
         ]
 
-        for i in range(1, len(dados) - 1):
+        # Inclui o último bar (útil para monitoramento em tempo real)
+        for i in range(1, len(dados)):
             data_atual = dados.index[i]
-            preco = close.iloc[i]
-            atr_atual = atr.iloc[i] if not pd.isna(atr.iloc[i]) else preco * 0.01
+            preco      = float(close.iloc[i])
+            atr_raw    = atr.iloc[i]
+            atr_atual  = float(atr_raw) if not pd.isna(atr_raw) else preco * 0.01
 
-            # ── Sinais bullish ──
+            # ── Sinal bullish ────────────────────────────────────────────────
             for col, desc, forca in bullish_patterns:
                 if col not in dados.columns:
                     continue
-                if dados[col].iloc[i] != 1 or forca < min_strength:
+                if int(dados[col].iloc[i]) != 1 or forca < min_strength:
+                    continue
+                if contexto_tendencia and not self._check_trend_context(
+                    dados, i, close, 'long',
+                    ema_short_col=f'EMA_{ema_short_period}',
+                    ema_long_col=f'EMA_{ema_long_period}',
+                ):
                     continue
 
-                sinal_ok = True
-                if contexto_tendencia:
-                    sinal_ok = self._check_trend_context(dados, i, close, 'long')
+                sinais.append({
+                    'data':       data_atual,
+                    'tipo':       'Compra',
+                    'preco':      preco,
+                    'stop_loss':  preco - atr_atual * atr_stop_mult,
+                    'preco_alvo': preco + atr_atual * atr_target_mult,
+                    'estrategia': f'Price Action - {desc}',
+                    'forca':      forca,
+                })
+                break  # Um sinal bullish por barra
 
-                if sinal_ok:
-                    sinais.append({
-                        'data': data_atual,
-                        'tipo': 'Compra',
-                        'preco': preco,
-                        'stop_loss': preco - (atr_atual * 1.5),
-                        'preco_alvo': preco + (atr_atual * 3),
-                        'estrategia': f'Price Action - {desc}',
-                        'forca': forca,
-                    })
-                    break  # Um sinal por barra
-
-            # ── Sinais bearish ──
+            # ── Sinal bearish ────────────────────────────────────────────────
             for col, desc, forca in bearish_patterns:
                 if col not in dados.columns:
                     continue
-                if dados[col].iloc[i] != 1 or forca < min_strength:
+                if int(dados[col].iloc[i]) != 1 or forca < min_strength:
+                    continue
+                if contexto_tendencia and not self._check_trend_context(
+                    dados, i, close, 'short',
+                    ema_short_col=f'EMA_{ema_short_period}',
+                    ema_long_col=f'EMA_{ema_long_period}',
+                ):
                     continue
 
-                sinal_ok = True
-                if contexto_tendencia:
-                    sinal_ok = self._check_trend_context(dados, i, close, 'short')
-
-                if sinal_ok:
-                    sinais.append({
-                        'data': data_atual,
-                        'tipo': 'Venda',
-                        'preco': preco,
-                        'stop_loss': preco + (atr_atual * 1.5),
-                        'preco_alvo': preco - (atr_atual * 3),
-                        'estrategia': f'Price Action - {desc}',
-                        'forca': forca,
-                    })
-                    break
+                sinais.append({
+                    'data':       data_atual,
+                    'tipo':       'Venda',
+                    'preco':      preco,
+                    'stop_loss':  preco + atr_atual * atr_stop_mult,
+                    'preco_alvo': preco - atr_atual * atr_target_mult,
+                    'estrategia': f'Price Action - {desc}',
+                    'forca':      forca,
+                })
+                break  # Um sinal bearish por barra
 
         return sinais
 
     @staticmethod
-    def _check_trend_context(dados: pd.DataFrame, i: int,
-                             close: pd.Series, direction: str) -> bool:
-        """Verifica se o contexto de tendência é favorável ao sinal."""
-        ema_cols = [c for c in dados.columns if c.startswith('EMA_')]
+    def _check_trend_context(
+        dados: pd.DataFrame,
+        i: int,
+        close: pd.Series,
+        direction: str,
+        ema_short_col: str = 'EMA_21',
+        ema_long_col:  str = 'EMA_55',
+    ) -> bool:
+        """Verifica se o contexto de tendência é favorável ao sinal.
+
+        Args:
+            dados:         DataFrame com colunas EMA.
+            i:             Índice da barra.
+            close:         Série de fechamentos.
+            direction:     'long' ou 'short'.
+            ema_short_col: Nome da coluna EMA curta (parametrizável).
+            ema_long_col:  Nome da coluna EMA longa (parametrizável).
+
+        Returns:
+            True se o contexto confirma a direção, False caso contrário.
+            Retorna True quando as EMAs não estão disponíveis (sem filtro).
+        """
+        # Fallback para qualquer EMA disponível se as preferidas não existem
+        ema_cols = sorted(
+            [c for c in dados.columns if c.startswith('EMA_')],
+            key=lambda c: int(c.split('_')[1]) if c.split('_')[1].isdigit() else 999,
+        )
         if len(ema_cols) < 2:
-            return True  # Sem dados de tendência — não filtrar
+            return True   # sem EMAs — não filtrar
 
-        # Usar EMA_21 e EMA_55 se disponíveis, caso contrário as duas primeiras
-        ema_short_col = 'EMA_21' if 'EMA_21' in dados.columns else ema_cols[0]
-        ema_long_col = 'EMA_55' if 'EMA_55' in dados.columns else ema_cols[-1]
+        short_col = ema_short_col if ema_short_col in dados.columns else ema_cols[0]
+        long_col  = ema_long_col  if ema_long_col  in dados.columns else ema_cols[-1]
 
-        ema_short = dados[ema_short_col].iloc[i]
-        ema_long = dados[ema_long_col].iloc[i]
+        ema_short = dados[short_col].iloc[i]
+        ema_long  = dados[long_col].iloc[i]
 
         if pd.isna(ema_short) or pd.isna(ema_long):
             return True
 
+        price = float(close.iloc[i])
+        es, el = float(ema_short), float(ema_long)
+
         if direction == 'long':
-            return close.iloc[i] > ema_short > ema_long
-        else:  # short
-            return close.iloc[i] < ema_short < ema_long
+            return price > es > el
+        # short
+        return price < es < el

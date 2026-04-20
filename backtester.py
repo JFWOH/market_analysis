@@ -124,7 +124,50 @@ class Backtester:
             # ── Gerenciar posição aberta ──────────────────────────────────────
             if position is not None:
 
-                if position['type'] == 'long':
+                # ── Partial Exit + Breakeven (Sprint-1 passo 3) ───────────
+                # Ao atingir +R×initial_risk, fecha fração da posição e move
+                # stop do restante para breakeven (entry + offset). Ataca
+                # Profit Factor convertendo quase-losers em scratches.
+                # Flag: se partial disparou nesta barra, não aplicamos stop/TP
+                # na mesma barra (ordem high/low dentro da barra é ambígua).
+                partial_fired_this_bar = False
+                if (params.get('use_partial_exit', False)
+                        and not position.get('partial_done', False)):
+                    partial_r   = float(params.get('partial_exit_r', 1.0))
+                    partial_frc = float(params.get('partial_exit_fraction', 0.5))
+                    be_offset   = float(params.get('breakeven_offset_atr', 0.0))
+                    init_risk   = position['initial_risk_abs']
+
+                    if position['type'] == 'long':
+                        trigger = position['entry_price'] + partial_r * init_risk
+                        if high_val >= trigger:
+                            self._partial_exit(position, trigger, current_date,
+                                               i, partial_frc)
+                            capital += position['_partial_released']
+                            position['partial_done'] = True
+                            partial_fired_this_bar = True
+                            # Move stop para breakeven (só aperta, nunca afrouxa)
+                            be_stop = position['entry_price'] + be_offset * atr_val
+                            if be_stop > position['stop_loss']:
+                                position['stop_loss'] = be_stop
+                                position['breakeven_moved'] = True
+                    else:  # short
+                        trigger = position['entry_price'] - partial_r * init_risk
+                        if low_val <= trigger:
+                            self._partial_exit(position, trigger, current_date,
+                                               i, partial_frc)
+                            capital += position['_partial_released']
+                            position['partial_done'] = True
+                            partial_fired_this_bar = True
+                            be_stop = position['entry_price'] - be_offset * atr_val
+                            if be_stop < position['stop_loss']:
+                                position['stop_loss'] = be_stop
+                                position['breakeven_moved'] = True
+
+                if partial_fired_this_bar:
+                    # Evita stop/TP na mesma barra do partial (ordem intra-bar ambígua)
+                    pass
+                elif position['type'] == 'long':
                     # Trailing stop update
                     if params.get('use_trailing_stop', False):
                         trail_threshold = (
@@ -140,8 +183,10 @@ class Backtester:
                                 position['stop_loss'] = new_stop
 
                     if low_val <= position['stop_loss']:
+                        reason = ('Breakeven Stop'
+                                  if position.get('breakeven_moved') else 'Stop Loss')
                         self._close_position(position, position['stop_loss'],
-                                             current_date, 'Stop Loss', i)
+                                             current_date, reason, i)
                         capital += position['amount'] + position['_pnl']
                         position = None
                         last_exit_bar = i
@@ -168,8 +213,10 @@ class Backtester:
                                 position['stop_loss'] = new_stop
 
                     if high_val >= position['stop_loss']:
+                        reason = ('Breakeven Stop'
+                                  if position.get('breakeven_moved') else 'Stop Loss')
                         self._close_position(position, position['stop_loss'],
-                                             current_date, 'Stop Loss', i)
+                                             current_date, reason, i)
                         capital += position['amount'] + position['_pnl']
                         position = None
                         last_exit_bar = i
@@ -209,14 +256,18 @@ class Backtester:
                         continue
 
                     position = {
-                        'type':         'long' if is_long else 'short',
-                        'entry_date':   current_date,
-                        'entry_bar':    i,
-                        'entry_price':  entry_price,
-                        'stop_loss':    sig['stop_loss'],
-                        'take_profit':  sig['preco_alvo'],
-                        'amount':       pos_amount,
-                        'pattern':      sig['estrategia'],
+                        'type':             'long' if is_long else 'short',
+                        'entry_date':       current_date,
+                        'entry_bar':        i,
+                        'entry_price':      entry_price,
+                        'stop_loss':        sig['stop_loss'],
+                        'take_profit':      sig['preco_alvo'],
+                        'amount':           pos_amount,
+                        'original_amount':  pos_amount,
+                        'initial_risk_abs': abs(entry_price - sig['stop_loss']),
+                        'partial_done':     False,
+                        'breakeven_moved':  False,
+                        'pattern':          sig['estrategia'],
                     }
                     # Deduzir capital alocado + comissão de entrada
                     capital -= pos_amount + self.commission_per_trade
@@ -281,6 +332,65 @@ class Backtester:
     # ──────────────────────────────────────────────────────────────────
     # Internos
     # ──────────────────────────────────────────────────────────────────
+
+    def _partial_exit(
+        self,
+        position: dict,
+        exit_price: float,
+        exit_date,
+        exit_bar: int,
+        fraction: float,
+    ) -> None:
+        """Fecha uma fração da posição e deixa o restante aberto.
+
+        Usado pelo *partial exit* do Sprint-1 (passo 3): ao atingir +R×risco
+        inicial, fecha ``fraction`` da posição (tipicamente 50%), registra
+        como trade separado e reduz ``position['amount']``. O chamador deve
+        então mover ``position['stop_loss']`` para breakeven.
+
+        Contabilidade de custos (por trade completo: entrada + parcial + final
+        = 3 execuções de comissão):
+            - Trade parcial: 'commission' = commission_per_trade (só saída)
+            - Trade final:   'commission' = 2 × commission_per_trade (entrada+saída)
+
+        Side-effect: define ``position['_partial_released']`` com o valor
+        (amount_fechado + pnl_parcial) a ser devolvido ao capital.
+        """
+        fraction = max(0.01, min(0.99, fraction))  # clamp defensivo
+        closed_amount = position['amount'] * fraction
+
+        # Slippage adverso na saída parcial
+        if position['type'] == 'long':
+            effective_exit = exit_price * (1.0 - self.slippage_pct)
+            pct = effective_exit / position['entry_price'] - 1.0
+        else:
+            effective_exit = exit_price * (1.0 + self.slippage_pct)
+            pct = position['entry_price'] / effective_exit - 1.0
+
+        gross_pnl = closed_amount * pct
+        pnl       = gross_pnl - self.commission_per_trade   # comissão saída parcial
+
+        duration = max(0, exit_bar - position.get('entry_bar', exit_bar))
+
+        self.trades.append({
+            'entry_date':    position['entry_date'],
+            'exit_date':     exit_date,
+            'duration_bars': duration,
+            'type':          position['type'],
+            'entry_price':   position['entry_price'],
+            'exit_price':    effective_exit,
+            'amount':        closed_amount,
+            'pnl':           pnl,
+            'gross_pnl':     gross_pnl,
+            'commission':    self.commission_per_trade,      # só saída (entrada compartilhada)
+            'pct_change':    pct,
+            'reason':        'Partial Exit',
+            'pattern':       position['pattern'],
+        })
+
+        # Reduzir a posição e devolver capital da parte fechada
+        position['amount']           -= closed_amount
+        position['_partial_released'] = closed_amount + pnl
 
     def _close_position(
         self,

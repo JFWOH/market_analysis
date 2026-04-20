@@ -79,14 +79,18 @@ class Backtester:
         Returns:
             Dicionário com métricas de performance.
         """
-        data = self.strategy.data
-        if data is None or data.empty:
+        # Verificação de dados antes de prepare()
+        if self.strategy.data is None or self.strategy.data.empty:
             logger.error("Sem dados para backtesting")
             return {}
 
-        # Preparar dados e gerar sinais
+        # Preparar dados e gerar sinais (prepare() adiciona indicadores,
+        # incluindo Realized_Vol. data deve ser capturado APÓS prepare().)
         self.strategy.prepare()
         signals = self.strategy.generate_signals()
+
+        # Referência pós-prepare (contém ATR, Realized_Vol, ADX, Hurst, etc.)
+        data = self.strategy.data
 
         params = self.strategy.params
         capital = self.initial_capital
@@ -251,6 +255,26 @@ class Backtester:
                         max_position_pct=params.get('max_position_pct', 0.5),
                         max_risk_pct=params.get('max_risk_pct', 0.02),
                     )
+
+                    # ── Vol Targeting (Sprint-2 passo 2) ─────────────────────
+                    # Escala o tamanho da posição para manter vol da carteira
+                    # próxima de vol_target_annual, independente do regime de
+                    # volatilidade do ativo.
+                    #   scalar = target_vol / realized_vol
+                    #   scalar clampado em [vol_scalar_min, vol_scalar_max]
+                    # Resultado: posições menores em períodos voláteis (protege
+                    # capital) e maiores em períodos calmos (captura mais edge).
+                    if params.get('use_vol_targeting', False):
+                        rv_val = (data['Realized_Vol'].iloc[i]
+                                  if 'Realized_Vol' in data.columns else None)
+                        if rv_val is not None and not pd.isna(rv_val) and rv_val > 1e-6:
+                            target_vol = float(params.get('vol_target_annual', 0.15))
+                            scalar = target_vol / rv_val
+                            scalar = max(
+                                float(params.get('vol_scalar_min', 0.25)),
+                                min(float(params.get('vol_scalar_max', 2.0)), scalar),
+                            )
+                            pos_amount *= scalar
 
                     if pos_amount < 1000.0:
                         continue

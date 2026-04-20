@@ -143,6 +143,14 @@ class TechnicalIndicators:
         df["Suporte"]    = low.rolling(window=10, min_periods=1).min()
         df["Resistencia"] = high.rolling(window=10, min_periods=1).max()
 
+        # ── Volatilidade Realizada (Sprint-2: vol targeting) ─────────────────
+        # Anualiza pela periodicidade inferida do índice (igual ao Backtester).
+        ann_factor = TechnicalIndicators._infer_ann_factor(df)
+        vol_window = p.get("vol_window", 20)
+        df["Realized_Vol"] = TechnicalIndicators.realized_vol(
+            close, window=vol_window, ann_factor=ann_factor
+        )
+
         # ── ADX + DI+/DI- (Sprint-2: regime detection) ───────────────────────
         adx, di_plus, di_minus = TechnicalIndicators.adx(
             high, low, close, p["adx_period"]
@@ -156,7 +164,8 @@ class TechnicalIndicators:
             close, window=p["hurst_window"]
         )
 
-        logger.debug("Indicadores técnicos calculados: %d períodos", len(df))
+        logger.debug("Indicadores calculados: %d periodos, %d colunas",
+                     len(df), len(df.columns))
         return df
 
     # ── Indicadores individuais ───────────────────────────────────────────────
@@ -459,3 +468,71 @@ class TechnicalIndicators:
             start = max(0, i - window + 1)
             result[i] = _rs_hurst(values[start:i + 1])
         return pd.Series(result, index=close.index)
+
+    @staticmethod
+    def realized_vol(
+        close: pd.Series,
+        window: int = 20,
+        ann_factor: float | None = None,
+    ) -> pd.Series:
+        """Volatilidade realizada anualizada (desvio padrão de log-retornos).
+
+        Usada pelo Volatility Targeting (Sprint-2 passo 2) para escalar o
+        tamanho de posição e manter exposição ao risco constante ao longo
+        do tempo.
+
+        Fórmula:
+            rv[t] = std(log(close[t-w:t] / close[t-w-1:t-1])) * sqrt(A)
+
+        onde A = períodos por ano (252 para diário, 252*8 para 1h, etc.).
+
+        Args:
+            close:      Série de fechamentos.
+            window:     Tamanho da janela rolling (padrão: 20).
+            ann_factor: sqrt(períodos_por_ano). Se None, usa sqrt(252) = diário.
+
+        Returns:
+            Series com vol anualizada no intervalo [0, ∞); NaN nos primeiros
+            (window-1) períodos.
+        """
+        if ann_factor is None:
+            ann_factor = float(np.sqrt(252))
+        log_ret = np.log(close / close.shift(1))
+        rv = log_ret.rolling(window=window, min_periods=max(window // 2, 4)).std()
+        return rv * ann_factor
+
+    @staticmethod
+    def _infer_ann_factor(data: pd.DataFrame) -> float:
+        """Infere o fator de anualização a partir da mediana dos deltas de índice.
+
+        Mapeamento:
+            <= 90s  → 1m  → 252 * 480
+            <= 360s → 5m  → 252 * 96
+            <= 1080 → 15m → 252 * 32
+            <= 2100 → 30m → 252 * 16
+            <= 5400 → 1h  → 252 * 8
+            <= 21600 → 4h → 252 * 2
+            <= 129600 → 1d → 252
+            else → 52 (semanal) ou 12 (mensal)
+
+        Retorna sqrt(períodos_por_ano).
+        """
+        if data is None or len(data) < 2:
+            return float(np.sqrt(252))
+        try:
+            deltas = pd.Series(data.index).diff().dropna()
+            if deltas.empty:
+                return float(np.sqrt(252))
+            med = deltas.median().total_seconds()
+        except (TypeError, AttributeError):
+            return float(np.sqrt(252))
+        if   med <= 90:      ppy = 252 * 480
+        elif med <= 360:     ppy = 252 * 96
+        elif med <= 1080:    ppy = 252 * 32
+        elif med <= 2100:    ppy = 252 * 16
+        elif med <= 5400:    ppy = 252 * 8
+        elif med <= 21600:   ppy = 252 * 2
+        elif med <= 129600:  ppy = 252
+        elif med <= 777600:  ppy = 52
+        else:                ppy = 12
+        return float(np.sqrt(ppy))

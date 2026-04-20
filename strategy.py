@@ -71,6 +71,15 @@ class CombinedStrategy:
         "use_regime_filter":      False,   # opt-in
         "adx_threshold":          25.0,    # ADX mínimo para operar
         "hurst_threshold":        0.50,    # Hurst mínimo (0.5 = random walk)
+        # ── Volatility Targeting (Sprint-2 passo 2) ───────────────────
+        # Escala tamanho de posição pela vol realizada para manter exposição
+        # ao risco constante. Reduz posição em regimes voláteis (proteção),
+        # aumenta em regimes calmos (captura mais edge).
+        "use_vol_targeting":      False,   # opt-in
+        "vol_target_annual":      0.15,    # vol alvo anualizada (15%)
+        "vol_window":             20,      # janela de vol realizada (barras)
+        "vol_scalar_min":         0.25,    # floor do scalar (max redução: 75%)
+        "vol_scalar_max":         2.0,     # cap do scalar (max alavancagem: 2x)
         "time_filter_start_hour": 10,
         "time_filter_start_minute": 15,
         "time_filter_end_hour":   16,

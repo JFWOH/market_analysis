@@ -57,6 +57,20 @@ class CombinedStrategy:
         "use_trailing_stop":      True,
         "trailing_start_atr":     1.5,
         "trailing_step_atr":      0.5,
+        # ── Filtro de horário intraday (Sprint-1 passo 4) ─────────────
+        # Ativa apenas em dados intraday (auto-detectado). Bloqueia sinais
+        # em janelas de baixa liquidez / alta volatilidade espúria.
+        #   Abertura B3: 10:00 — primeiros 15min = spread largo, stop hunt
+        #   Fechamento B3: 17:00 — últimos 15min = gap risk, thin book
+        #   Almoço: 12:00-14:00 — low liquidity, whipsaws frequentes
+        "use_time_filter":        False,   # opt-in
+        "time_filter_start_hour": 10,
+        "time_filter_start_minute": 15,
+        "time_filter_end_hour":   16,
+        "time_filter_end_minute": 45,
+        "time_filter_skip_lunch": False,
+        "time_filter_lunch_start_hour": 12,
+        "time_filter_lunch_end_hour":   14,
     }
 
     def __init__(
@@ -218,6 +232,14 @@ class CombinedStrategy:
         if not p["allow_short"]:
             all_signals = [s for s in all_signals if s["tipo"] != "Venda"]
 
+        # ── Filtro de horário intraday (Sprint-1 passo 4) ─────────────────────
+        # Ataca ruído de abertura/fechamento/almoço. No-op para dados diários.
+        if p.get("use_time_filter", False) and self._is_intraday():
+            before = len(all_signals)
+            all_signals = [s for s in all_signals if self._in_trading_window(s["data"])]
+            logger.debug("time_filter: %d -> %d sinais (%d bloqueados)",
+                         before, len(all_signals), before - len(all_signals))
+
         # ── Deduplicação: um sinal por (data, tipo) — mantém maior forca ──────
         best: dict[tuple, dict] = {}
         for s in all_signals:
@@ -259,6 +281,57 @@ class CombinedStrategy:
             "atr":       atr_val,
             "signals":   signals,
         }
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Filtro de horário (Sprint-1 passo 4)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _is_intraday(self) -> bool:
+        """Detecta se os dados têm granularidade intraday (< 1 dia).
+
+        Usa a mediana dos deltas entre timestamps consecutivos — robusto a
+        gaps de feriado/fim-de-semana. Se delta mediano < 20h, considera
+        intraday (permite tolerância para dados 1h que podem ter gaps).
+        """
+        if self.data is None or len(self.data) < 2:
+            return False
+        try:
+            deltas = pd.Series(self.data.index).diff().dropna()
+            if deltas.empty:
+                return False
+            median_sec = deltas.median().total_seconds()
+            return 0 < median_sec < 20 * 3600   # < 20h = intraday
+        except (TypeError, AttributeError):
+            return False
+
+    def _in_trading_window(self, ts) -> bool:
+        """Retorna True se ``ts`` cai dentro da janela permitida.
+
+        Bloqueia: antes de start, depois de end, e opcionalmente dentro do
+        horário de almoço. Usa apenas o componente hora:minuto do timestamp
+        (independente de timezone, pois o index já vem na tz do mercado).
+        """
+        p = self.params
+        try:
+            hour   = int(ts.hour)
+            minute = int(ts.minute)
+        except AttributeError:
+            return True   # timestamp sem hora (improvável aqui) → não filtra
+
+        t_min = hour * 60 + minute
+        start_min = p["time_filter_start_hour"] * 60 + p["time_filter_start_minute"]
+        end_min   = p["time_filter_end_hour"]   * 60 + p["time_filter_end_minute"]
+
+        if t_min < start_min or t_min > end_min:
+            return False
+
+        if p.get("time_filter_skip_lunch", False):
+            lunch_start = p["time_filter_lunch_start_hour"] * 60
+            lunch_end   = p["time_filter_lunch_end_hour"]   * 60
+            if lunch_start <= t_min < lunch_end:
+                return False
+
+        return True
 
     def _determine_trend(self) -> str:
         """Determina a tendência atual com base em indicadores."""

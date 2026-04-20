@@ -89,6 +89,18 @@ class CombinedStrategy:
         "ensemble_breakout":      True,    # usar breakout N-barras
         "ensemble_breakout_window": 20,    # janela de máximas/mínimas
         "ensemble_signal_strength": 7,     # forca mínima dos novos sinais
+        # ── Meta-Labeler (Sprint-4 passo 1) ───────────────────────────────
+        # Classificador secundário (RandomForest) que filtra sinais do modelo
+        # primário pelos de maior probabilidade de acerto estimada.
+        # Requer chamada prévia a train_meta_labeler() (ou fit automático se
+        # meta_auto_train=True, que usa os dados já carregados em self.data).
+        "use_meta_labeler":       False,   # opt-in
+        "meta_min_prob":          0.55,    # P(lucrativo) mínimo para aceitar
+        "meta_pt":                2.0,     # mult TP (triple-barrier)
+        "meta_sl":                1.0,     # mult SL (triple-barrier)
+        "meta_max_holding":       20,      # barras máx barreira vertical
+        "meta_n_estimators":      200,     # árvores do RandomForest
+        "meta_auto_train":        True,    # treina automaticamente na 1ª vez
         "time_filter_start_hour": 10,
         "time_filter_start_minute": 15,
         "time_filter_end_hour":   16,
@@ -110,7 +122,9 @@ class CombinedStrategy:
         self.params = dict(self.DEFAULT_PARAMS)
         if params:
             self.params.update(params)
-        self._prepared: bool = False
+        self._prepared:      bool = False
+        self._meta_labeler          = None   # MetaLabeler instance (lazy)
+        self._training_meta: bool = False   # flag anti-reentrada
 
     # ──────────────────────────────────────────────────────────────────────────
     # Dados
@@ -298,6 +312,20 @@ class CombinedStrategy:
         deduped = sorted(best.values(), key=lambda s: s["data"])
         logger.debug("generate_signals: %d sinais brutos → %d após deduplicação",
                      len(all_signals), len(deduped))
+
+        # ── Meta-labeler (Sprint-4 passo 1) ──────────────────────────────
+        # Filtra sinais com baixa probabilidade de acerto estimada pelo RF.
+        # Se meta_auto_train=True e o modelo ainda não foi treinado, treina
+        # agora sobre os dados disponíveis (lookback completo).
+        if p.get("use_meta_labeler", False) and deduped and not self._training_meta:
+            if self._meta_labeler is None and p.get("meta_auto_train", True):
+                self.train_meta_labeler()
+            if self._meta_labeler is not None and self._meta_labeler._fitted:
+                before = len(deduped)
+                deduped = self._meta_labeler.filter_signals(deduped, self.data)
+                logger.debug("meta_labeler: %d → %d sinais (min_prob=%.2f)",
+                             before, len(deduped), p["meta_min_prob"])
+
         return deduped
 
     # ──────────────────────────────────────────────────────────────────────────
@@ -329,6 +357,53 @@ class CombinedStrategy:
             "atr":       atr_val,
             "signals":   signals,
         }
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Meta-Labeler (Sprint-4 passo 1)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def train_meta_labeler(self, *, force: bool = False) -> bool:
+        """Treina o meta-labeler nos dados disponíveis em self.data.
+
+        Chama MetaLabeler.fit_from_strategy() com os params atuais.
+        Idempotente: pula se já treinado (use force=True para re-treinar).
+
+        Returns
+        -------
+        True se o treino foi concluído; False se não havia dados suficientes.
+        """
+        if self._meta_labeler is not None and self._meta_labeler._fitted and not force:
+            return True
+
+        if self.data is None or self.data.empty:
+            logger.warning("train_meta_labeler: sem dados")
+            return False
+
+        if not self._prepared:
+            self.prepare()
+
+        try:
+            from meta_labeler import MetaLabeler  # import local p/ evitar dep circular
+        except ImportError:
+            logger.error("meta_labeler.py não encontrado — MetaLabeler indisponível")
+            return False
+
+        p = self.params
+        ml = MetaLabeler(
+            n_estimators=int(p.get("meta_n_estimators", 200)),
+            min_prob=float(p.get("meta_min_prob", 0.55)),
+            pt_sl=(float(p.get("meta_pt", 2.0)), float(p.get("meta_sl", 1.0))),
+            max_holding=int(p.get("meta_max_holding", 20)),
+        )
+        self._training_meta = True
+        try:
+            ml.fit_from_strategy(self, eval_cv=False)   # eval_cv=False p/ velocidade
+        finally:
+            self._training_meta = False
+        self._meta_labeler = ml
+        logger.info("train_meta_labeler: fitted=%s cv_roc_auc=%s",
+                    ml._fitted, ml.cv_roc_auc)
+        return ml._fitted
 
     # ──────────────────────────────────────────────────────────────────────────
     # Ensemble de sinais (Sprint-2 passo 3)

@@ -57,48 +57,101 @@ except ImportError:
 # Feature engineering
 # ─────────────────────────────────────────────────────────────────────────────
 
-_FEATURE_COLS = [
-    # Momentum / tendência
-    "ADX", "DI_Plus", "DI_Minus",
-    "EMA_8", "EMA_21", "EMA_55",
-    # Regime
-    "Hurst",
-    # Volatilidade
-    "ATR", "Realized_Vol", "BB_Width",
-    # Osciladores
-    "RSI", "MACD", "MACD_Signal",
-    # Volume
-    "OBV",
-]
+def _compute_microstructure(data: pd.DataFrame, vol_window: int = 20) -> pd.DataFrame:
+    """
+    Pré-computa features de microestrutura sobre o DataFrame completo.
+
+    Retorna DataFrame com as mesmas linhas que `data` e colunas extras:
+      micro_amihud      : Amihud illiquidity ratio (|ret| / value_traded), rolling mean
+      micro_vol_ratio   : Volume atual / rolling mean (volume surge)
+      micro_vol_trend   : Rolling 5 / rolling 20 de volume (curto vs longo)
+      micro_vwap_dist   : (Close - VWAP_rolling) / Close
+      micro_range       : (High - Low) / Close  (intrabar range normalizado)
+      micro_gap         : (Open - prev_Close) / prev_Close  (overnight gap)
+      micro_rel_range   : (High - Low) / ATR  (range relativo à volatilidade média)
+    """
+    df = pd.DataFrame(index=data.index)
+
+    close  = data["Close"]
+    high   = data["High"]   if "High"   in data.columns else close
+    low    = data["Low"]    if "Low"    in data.columns else close
+    opn    = data["Open"]   if "Open"   in data.columns else close
+    volume = data["Volume"] if "Volume" in data.columns else pd.Series(1.0, index=data.index)
+    atr    = data["ATR"]    if "ATR"    in data.columns else pd.Series(np.nan, index=data.index)
+
+    log_ret = np.log(close / close.shift(1)).abs()
+
+    # ── Amihud illiquidity: |ret| / (vol × close) ────────────────────────
+    value_traded = (volume * close).replace(0, np.nan)
+    amihud_raw   = log_ret / value_traded
+    df["micro_amihud"] = amihud_raw.rolling(vol_window, min_periods=5).mean().fillna(0)
+
+    # ── Volume ratio: vol_atual / vol_média ───────────────────────────────
+    vol_mean = volume.rolling(vol_window, min_periods=5).mean().replace(0, np.nan)
+    df["micro_vol_ratio"]  = (volume / vol_mean).fillna(1.0).clip(0, 10)
+
+    # ── Volume trend: média curta / média longa ───────────────────────────
+    vol_short = volume.rolling(5,          min_periods=3).mean().replace(0, np.nan)
+    vol_long  = volume.rolling(vol_window, min_periods=5).mean().replace(0, np.nan)
+    df["micro_vol_trend"] = (vol_short / vol_long).fillna(1.0).clip(0, 5)
+
+    # ── VWAP rolling: sum(close×vol) / sum(vol) ──────────────────────────
+    cv = (close * volume).rolling(vol_window, min_periods=5).sum()
+    v  = volume.rolling(vol_window, min_periods=5).sum().replace(0, np.nan)
+    vwap = cv / v
+    df["micro_vwap_dist"] = ((close - vwap) / close.replace(0, np.nan)).fillna(0)
+
+    # ── Intrabar range normalizado ────────────────────────────────────────
+    df["micro_range"] = ((high - low) / close.replace(0, np.nan)).fillna(0)
+
+    # ── Gap overnight: (Open - prev_Close) / prev_Close ──────────────────
+    prev_close = close.shift(1)
+    df["micro_gap"] = ((opn - prev_close) / prev_close.replace(0, np.nan)).fillna(0)
+
+    # ── Range relativo ao ATR ─────────────────────────────────────────────
+    atr_safe = atr.replace(0, np.nan)
+    df["micro_rel_range"] = ((high - low) / atr_safe).fillna(1.0).clip(0, 5)
+
+    return df
 
 
 def build_features(
     data: pd.DataFrame,
     timestamps: pd.DatetimeIndex | None = None,
+    vol_window: int = 20,
 ) -> pd.DataFrame:
     """
     Extrai features de `data` para as timestamps indicadas.
 
-    Normaliza colunas de preço (EMA, ATR, etc.) em relação ao Close para
-    tornar as features scale-invariant.
+    Inclui indicadores técnicos (ADX, EMA, RSI, MACD, etc.) e features de
+    microestrutura (Amihud, volume ratio, VWAP dist, intrabar range, gap).
+    Todas as features de preço são normalizadas pelo Close (scale-invariant).
 
     Parameters
     ----------
     data       : DataFrame com indicadores (output de strategy.prepare()).
     timestamps : datas para as quais extrair features. Se None, usa todas.
+    vol_window : janela rolling para features de microestrutura (default 20).
 
     Returns
     -------
     pd.DataFrame com uma linha por timestamp e colunas de features.
     """
+    if data.empty:
+        return pd.DataFrame()
+
     if timestamps is None:
         timestamps = data.index
+
+    # Pré-computa microestrutura em batch (eficiente — operações vetorizadas)
+    micro = _compute_microstructure(data, vol_window=vol_window)
 
     rows = []
     for ts in timestamps:
         if ts not in data.index:
             continue
-        row = data.loc[ts]
+        row   = data.loc[ts]
+        m_row = micro.loc[ts] if ts in micro.index else pd.Series(dtype=float)
         feat: dict[str, float] = {}
 
         close = float(row.get("Close", np.nan))
@@ -110,13 +163,13 @@ def build_features(
         di_p   = row.get("DI_Plus",  np.nan)
         di_m   = row.get("DI_Minus", np.nan)
         feat["adx"]        = _safe(adx)
-        feat["di_ratio"]   = _safe(di_p - di_m)           # DI+ > DI- = bullish
+        feat["di_ratio"]   = _safe(di_p - di_m)
         feat["di_sum"]     = _safe(di_p + di_m)
 
         # ── EMA alignment (normalizado pelo close) ────────────────────────
         for ep in [8, 21, 55]:
             ema = row.get(f"EMA_{ep}", np.nan)
-            feat[f"ema{ep}_dist"] = _safe((close - ema) / close)  # % de distância
+            feat[f"ema{ep}_dist"] = _safe((close - ema) / close)
 
         feat["ema_align"] = _safe(
             (row.get("EMA_8", np.nan) - row.get("EMA_21", np.nan)) / close
@@ -140,6 +193,12 @@ def build_features(
         feat["macd_hist"]   = _safe(
             row.get("MACD", np.nan) - row.get("MACD_Signal", np.nan)
         )
+
+        # ── Microestrutura (Sprint-5 passo 1) ────────────────────────────
+        for col in ["micro_amihud", "micro_vol_ratio", "micro_vol_trend",
+                    "micro_vwap_dist", "micro_range", "micro_gap",
+                    "micro_rel_range"]:
+            feat[col] = _safe(m_row.get(col, 0.0) if hasattr(m_row, "get") else 0.0)
 
         rows.append({"_ts": ts, **feat})
 

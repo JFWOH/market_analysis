@@ -474,3 +474,151 @@ class MetaLabeler:
             "min_prob":    self.min_prob,
             "n_features":  len(self._feature_names) if self._fitted else 0,
         }
+
+    # ── Sprint-6 passo 1: Calibração dinâmica ────────────────────────────────
+
+    def calibration_curve(
+        self, X: pd.DataFrame, y: pd.Series,
+        thresholds: np.ndarray | None = None,
+    ) -> pd.DataFrame:
+        """
+        Computa precision, recall e F1 para vários limiares de min_prob.
+
+        Parameters
+        ----------
+        X          : features de validação.
+        y          : labels binários (1 = lucrativo, 0 = não lucrativo).
+        thresholds : array de limiares (default: 50 pontos entre 0.1 e 0.95).
+
+        Returns
+        -------
+        pd.DataFrame com colunas: threshold, precision, recall, f1, n_accepted.
+        """
+        if not self._fitted:
+            raise RuntimeError("calibration_curve: modelo nao treinado")
+        if thresholds is None:
+            thresholds = np.linspace(0.10, 0.95, 50)
+
+        y_bin   = (y == 1).astype(int)
+        y_proba = self._pipeline.predict_proba(X.values)[:, 1]
+
+        rows = []
+        for thr in thresholds:
+            y_pred    = (y_proba >= thr).astype(int)
+            n_acc     = int(y_pred.sum())
+            if n_acc == 0:
+                rows.append({"threshold": thr, "precision": np.nan,
+                             "recall": 0.0, "f1": 0.0, "n_accepted": 0})
+                continue
+            tp = int(((y_pred == 1) & (y_bin == 1)).sum())
+            fp = int(((y_pred == 1) & (y_bin == 0)).sum())
+            fn = int(((y_pred == 0) & (y_bin == 1)).sum())
+            prec = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            rec  = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            f1   = 2 * prec * rec / (prec + rec) if (prec + rec) > 0 else 0.0
+            rows.append({"threshold": thr, "precision": prec,
+                         "recall": rec, "f1": f1, "n_accepted": n_acc})
+        return pd.DataFrame(rows)
+
+    def calibrate(
+        self,
+        X: pd.DataFrame,
+        y: pd.Series,
+        target_recall: float = 0.30,
+        metric: str = "f1",
+    ) -> float:
+        """
+        Encontra e aplica o min_prob ótimo num conjunto de validação.
+
+        Estratégia:
+          - Filtra limiares que atingem pelo menos target_recall.
+          - Entre esses, escolhe o que maximiza `metric` (f1 ou precision).
+          - Atualiza self.min_prob com o valor encontrado.
+
+        Parameters
+        ----------
+        X             : features de validação (sem overlap com treino).
+        y             : labels binários de validação.
+        target_recall : recall mínimo aceitável (default 0.30 = 30%).
+        metric        : "f1" (default) ou "precision".
+
+        Returns
+        -------
+        Novo min_prob calibrado (float).
+        """
+        curve = self.calibration_curve(X, y)
+        # Filtra limiares que atingem o recall mínimo
+        eligible = curve[curve["recall"] >= target_recall].dropna(subset=[metric])
+        if eligible.empty:
+            # Fallback: threshold de máximo recall (menor threshold válido)
+            best_thr = float(curve.loc[curve["recall"].idxmax(), "threshold"])
+            logger.warning(
+                "calibrate: nenhum threshold atingiu recall >= %.2f; "
+                "usando threshold de max-recall %.3f", target_recall, best_thr,
+            )
+        else:
+            best_row = eligible.loc[eligible[metric].idxmax()]
+            best_thr = float(best_row["threshold"])
+            logger.info(
+                "calibrate: threshold=%.3f  precision=%.3f  recall=%.3f  f1=%.3f",
+                best_thr,
+                float(best_row["precision"]),
+                float(best_row["recall"]),
+                float(best_row["f1"]),
+            )
+        self.min_prob = best_thr
+        return best_thr
+
+    def calibrate_from_strategy(
+        self,
+        strategy,
+        val_fraction: float = 0.25,
+        target_recall: float = 0.30,
+        metric: str = "f1",
+    ) -> float:
+        """
+        Calibra min_prob usando os últimos `val_fraction` dos dados da strategy.
+
+        O modelo deve já estar treinado (fit_from_strategy nos dados anteriores).
+        O período de validação NÃO deve fazer parte do treino para evitar leakage.
+
+        Parameters
+        ----------
+        strategy      : CombinedStrategy já preparada (com _meta_labeler treinado).
+        val_fraction  : fração dos dados usada como validação (default 0.25).
+        target_recall : passado para calibrate().
+        metric        : passado para calibrate().
+
+        Returns
+        -------
+        Novo min_prob calibrado (float).
+        """
+        if not self._fitted:
+            raise RuntimeError("calibrate_from_strategy: modelo nao treinado")
+        if strategy.data is None:
+            raise ValueError("strategy.data e None")
+
+        data = strategy.data
+        n    = len(data)
+        val_start = int(n * (1 - val_fraction))
+        val_data  = data.iloc[val_start:]
+
+        lbl = TripleBarrierLabeler(
+            pt_sl=self.pt_sl, max_holding=self.max_holding
+        )
+        # Gera labels de validação (sem sinais, só barras)
+        labeled = lbl.label_events(val_data["Close"])
+        if labeled.empty:
+            logger.warning("calibrate_from_strategy: sem labels de validacao")
+            return self.min_prob
+
+        feat_ts = labeled.index[labeled.index.isin(val_data.index)]
+        X_val   = build_features(val_data, timestamps=feat_ts)
+        if X_val.empty:
+            return self.min_prob
+
+        aligned = labeled.loc[labeled.index.isin(X_val.index)]
+        y_val   = (aligned["label"] == 1).astype(int)
+
+        return self.calibrate(X_val, y_val,
+                              target_recall=target_recall, metric=metric)

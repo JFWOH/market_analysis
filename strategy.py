@@ -101,6 +101,14 @@ class CombinedStrategy:
         "meta_max_holding":       20,      # barras máx barreira vertical
         "meta_n_estimators":      200,     # árvores do RandomForest
         "meta_auto_train":        True,    # treina automaticamente na 1ª vez
+        # ── Kelly Criterion sizing (Sprint-6 passo 3) ─────────────────────
+        # Escala tamanho de posição pelo f* de Kelly com histórico de trades.
+        # Kelly puro é agressivo; kelly_fraction=0.5 (half-Kelly) é padrão.
+        # Requer >= 10 trades no histórico para ativar (usa fixed sizing antes).
+        "use_kelly_sizing":       False,   # opt-in
+        "kelly_fraction":         0.5,     # fração do Kelly ótimo (0.5 = half)
+        "kelly_min":              0.10,    # scalar mínimo (floor)
+        "kelly_max":              2.0,     # scalar máximo (cap)
         "time_filter_start_hour": 10,
         "time_filter_start_minute": 15,
         "time_filter_end_hour":   16,
@@ -404,6 +412,33 @@ class CombinedStrategy:
         logger.info("train_meta_labeler: fitted=%s cv_roc_auc=%s",
                     ml._fitted, ml.cv_roc_auc)
         return ml._fitted
+
+    def calibrate_meta_labeler(
+        self,
+        val_fraction: float = 0.25,
+        target_recall: float = 0.30,
+        metric: str = "f1",
+    ) -> float | None:
+        """Calibra min_prob do meta-labeler via precision-recall no set de validação.
+
+        Requer que train_meta_labeler() já tenha sido chamado.
+        O conjunto de validação são os últimos `val_fraction` dos dados.
+
+        Returns
+        -------
+        Novo min_prob calibrado, ou None se meta-labeler não treinado.
+        """
+        if self._meta_labeler is None or not self._meta_labeler._fitted:
+            logger.warning("calibrate_meta_labeler: meta-labeler nao treinado")
+            return None
+        new_prob = self._meta_labeler.calibrate_from_strategy(
+            self,
+            val_fraction=val_fraction,
+            target_recall=target_recall,
+            metric=metric,
+        )
+        logger.info("calibrate_meta_labeler: min_prob -> %.3f", new_prob)
+        return new_prob
 
     # ──────────────────────────────────────────────────────────────────────────
     # Ensemble de sinais (Sprint-2 passo 3)

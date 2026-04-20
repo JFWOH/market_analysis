@@ -276,6 +276,33 @@ class Backtester:
                             )
                             pos_amount *= scalar
 
+                    # ── Kelly Criterion sizing (Sprint-6 passo 3) ────────────
+                    # Escala posição por f* = (p×b - q) / b  onde:
+                    #   p = win_rate estimado (histórico de trades até agora)
+                    #   b = avg_win / avg_loss  (payoff ratio)
+                    #   q = 1 - p
+                    # Usa half-Kelly (kelly_fraction=0.5) como padrão para
+                    # reduzir variance. Se histórico insuficiente (<10 trades),
+                    # Kelly é no-op (scalar=1.0).
+                    if params.get('use_kelly_sizing', False) and len(self.trades) >= 10:
+                        wins   = [t['pnl'] for t in self.trades if t.get('pnl', 0) > 0]
+                        losses = [t['pnl'] for t in self.trades if t.get('pnl', 0) < 0]
+                        if wins and losses:
+                            p_win    = len(wins) / len(self.trades)
+                            avg_win  = sum(wins)  / len(wins)
+                            avg_loss = abs(sum(losses) / len(losses))
+                            b        = avg_win / max(avg_loss, 1e-6)
+                            kelly_f  = (p_win * b - (1 - p_win)) / b
+                            kelly_f  = max(0.0, min(kelly_f, 1.0))
+                            kf       = float(params.get('kelly_fraction', 0.5))
+                            kelly_scalar = kelly_f * kf
+                            kelly_scalar = max(
+                                float(params.get('kelly_min', 0.10)),
+                                min(float(params.get('kelly_max', 2.0)), kelly_scalar),
+                            )
+                            if kelly_scalar > 0:
+                                pos_amount *= kelly_scalar
+
                     if pos_amount < 1000.0:
                         continue
 

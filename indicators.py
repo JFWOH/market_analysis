@@ -56,6 +56,9 @@ class TechnicalIndicators:
         "bb_std":      2,
         "stoch_k":     14,
         "stoch_d":     3,
+        # ── Sprint-2: Regime detection ────────────────────────────────
+        "adx_period":   14,   # período do ADX (Wilder)
+        "hurst_window": 100,  # barras para estimativa de Hurst (R/S)
     }
 
     # ── Orquestrador ──────────────────────────────────────────────────────────
@@ -139,6 +142,19 @@ class TechnicalIndicators:
         # ── Suporte / Resistência (swing simples) ─────────────────────────────
         df["Suporte"]    = low.rolling(window=10, min_periods=1).min()
         df["Resistencia"] = high.rolling(window=10, min_periods=1).max()
+
+        # ── ADX + DI+/DI- (Sprint-2: regime detection) ───────────────────────
+        adx, di_plus, di_minus = TechnicalIndicators.adx(
+            high, low, close, p["adx_period"]
+        )
+        df["ADX"]      = adx
+        df["DI_Plus"]  = di_plus
+        df["DI_Minus"] = di_minus
+
+        # ── Hurst Exponent rolling (Sprint-2: regime detection) ───────────────
+        df["Hurst"] = TechnicalIndicators.hurst_rolling(
+            close, window=p["hurst_window"]
+        )
 
         logger.debug("Indicadores técnicos calculados: %d períodos", len(df))
         return df
@@ -308,3 +324,138 @@ class TechnicalIndicators:
         stoch_k = ((close - min_k) / rng * 100.0).fillna(50.0)
         stoch_d = stoch_k.rolling(window=d_period, min_periods=d_period).mean().fillna(50.0)
         return stoch_k, stoch_d
+
+    @staticmethod
+    def adx(
+        high: pd.Series,
+        low: pd.Series,
+        close: pd.Series,
+        period: int = 14,
+    ) -> tuple[pd.Series, pd.Series, pd.Series]:
+        """ADX — Average Directional Index (Wilder, 1978).
+
+        Mede a *força* da tendência independente de direção.
+        Referências de interpretação:
+            ADX < 20  → mercado sem tendência (range)
+            ADX 20-25 → tendência emergindo
+            ADX > 25  → tendência confirmada
+            ADX > 40  → tendência forte
+
+        DI+ > DI-   → tendência altista.
+        DI- > DI+   → tendência baixista.
+
+        Args:
+            high:   Série de máximas.
+            low:    Série de mínimas.
+            close:  Série de fechamentos.
+            period: Períodos do SMMA de Wilder (padrão: 14).
+
+        Returns:
+            Tupla (adx, di_plus, di_minus) — todas no intervalo [0, 100].
+        """
+        # True Range
+        prev_close = close.shift(1)
+        tr = pd.concat([
+            high - low,
+            (high - prev_close).abs(),
+            (low  - prev_close).abs(),
+        ], axis=1).max(axis=1)
+
+        # Directional Movement
+        up_move   = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        dm_plus  = np.where((up_move > down_move) & (up_move > 0), up_move,  0.0)
+        dm_minus = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+        dm_plus  = pd.Series(dm_plus,  index=high.index)
+        dm_minus = pd.Series(dm_minus, index=high.index)
+
+        # Wilder SMMA (alpha = 1/period)
+        alpha = 1.0 / period
+        atr_w   = tr.ewm(alpha=alpha,    min_periods=period, adjust=False).mean()
+        dmp_sm  = dm_plus.ewm(alpha=alpha,  min_periods=period, adjust=False).mean()
+        dmm_sm  = dm_minus.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+
+        # DI+/DI-
+        safe_atr = atr_w.replace(0, np.nan)
+        di_plus  = (100.0 * dmp_sm / safe_atr).fillna(0.0)
+        di_minus = (100.0 * dmm_sm / safe_atr).fillna(0.0)
+
+        # DX e ADX
+        di_sum  = (di_plus + di_minus).replace(0, np.nan)
+        dx      = (100.0 * (di_plus - di_minus).abs() / di_sum).fillna(0.0)
+        adx_val = dx.ewm(alpha=alpha, min_periods=period, adjust=False).mean()
+
+        return adx_val, di_plus, di_minus
+
+    @staticmethod
+    def hurst_rolling(
+        close: pd.Series,
+        window: int = 100,
+        min_periods: int = 40,
+    ) -> pd.Series:
+        """Expoente de Hurst rolling via análise R/S (Rescaled Range).
+
+        H > 0.55 → mercado trending (persistência) — bom para operar tendência.
+        H ≈ 0.50 → random walk — estratégias trend tendem a falhar.
+        H < 0.45 → mean-reverting — melhor para estratégias de reversão.
+
+        A estimativa R/S divide a janela em sub-períodos de tamanhos
+        [4, 8, 16, ...] e regride log(R/S) sobre log(tamanho).
+        O slope da regressão é H. Implementação pura numpy — sem scipy.
+
+        Args:
+            close:       Série de fechamentos.
+            window:      Tamanho da janela rolling (padrão: 100).
+            min_periods: Mínimo de barras para calcular (padrão: 40).
+
+        Returns:
+            Series com H no intervalo (0, 1]; NaN onde não há dados suficientes.
+        """
+        def _rs_hurst(arr: np.ndarray) -> float:
+            """R/S para um array 1-D. Retorna H ou NaN se não convergir."""
+            n = len(arr)
+            if n < 20:
+                return np.nan
+            # log-retornos
+            lret = np.log(arr[1:] / arr[:-1])
+            lret = lret[np.isfinite(lret)]
+            if len(lret) < 8:
+                return np.nan
+
+            # Tamanhos de sub-período: potências de 2 entre 4 e n/4
+            lags, rs_vals = [], []
+            s = 4
+            while s <= len(lret) // 2:
+                blocks = len(lret) // s
+                rs_block = []
+                for b in range(blocks):
+                    chunk = lret[b * s:(b + 1) * s]
+                    mean_c = chunk.mean()
+                    devs   = np.cumsum(chunk - mean_c)
+                    std_c  = chunk.std(ddof=1)
+                    if std_c < 1e-14:
+                        continue
+                    rs_block.append((devs.max() - devs.min()) / std_c)
+                if rs_block:
+                    lags.append(np.log(s))
+                    rs_vals.append(np.log(np.mean(rs_block)))
+                s *= 2
+
+            if len(lags) < 2:
+                return np.nan
+            # Regressão OLS simples: y = H * x + c
+            x = np.array(lags);  y = np.array(rs_vals)
+            xm = x.mean();       ym = y.mean()
+            h = float(np.sum((x - xm) * (y - ym)) /
+                      max(np.sum((x - xm) ** 2), 1e-14))
+            return float(np.clip(h, 0.01, 0.99))
+
+        values = close.values.astype(float)
+        result = np.full(len(close), np.nan)
+        for i in range(len(close)):
+            if i < min_periods - 1:
+                continue
+            start = max(0, i - window + 1)
+            result[i] = _rs_hurst(values[start:i + 1])
+        return pd.Series(result, index=close.index)

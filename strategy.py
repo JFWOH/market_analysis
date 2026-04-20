@@ -64,6 +64,13 @@ class CombinedStrategy:
         #   Fechamento B3: 17:00 — últimos 15min = gap risk, thin book
         #   Almoço: 12:00-14:00 — low liquidity, whipsaws frequentes
         "use_time_filter":        False,   # opt-in
+        # ── Filtro de regime (Sprint-2 passo 1) ───────────────────────
+        # Só gera sinais quando ADX > adx_threshold (tendência confirmada)
+        # E Hurst > hurst_threshold (mercado persistente, não mean-reverting).
+        # Usar ambos em conjunto reduz whipsaws em mercados laterais.
+        "use_regime_filter":      False,   # opt-in
+        "adx_threshold":          25.0,    # ADX mínimo para operar
+        "hurst_threshold":        0.50,    # Hurst mínimo (0.5 = random walk)
         "time_filter_start_hour": 10,
         "time_filter_start_minute": 15,
         "time_filter_end_hour":   16,
@@ -240,6 +247,19 @@ class CombinedStrategy:
             logger.debug("time_filter: %d -> %d sinais (%d bloqueados)",
                          before, len(all_signals), before - len(all_signals))
 
+        # ── Filtro de regime (Sprint-2 passo 1) ──────────────────────────────
+        # Bloqueia sinais quando o mercado não está em regime de tendência.
+        # ADX mede força da tendência (> threshold = trend confirmada).
+        # Hurst mede persistência (> 0.5 = trending, < 0.5 = mean-reverting).
+        # Usar ambos em conjunto reduz falsos positivos (ADX alto em ranges
+        # laterais acidentais é detectado por Hurst baixo).
+        if p.get("use_regime_filter", False):
+            before = len(all_signals)
+            all_signals = [s for s in all_signals
+                           if self._in_trending_regime(s["data"])]
+            logger.debug("regime_filter: %d -> %d sinais (%d bloqueados)",
+                         before, len(all_signals), before - len(all_signals))
+
         # ── Deduplicação: um sinal por (data, tipo) — mantém maior forca ──────
         best: dict[tuple, dict] = {}
         for s in all_signals:
@@ -303,6 +323,53 @@ class CombinedStrategy:
             return 0 < median_sec < 20 * 3600   # < 20h = intraday
         except (TypeError, AttributeError):
             return False
+
+    def _in_trending_regime(self, ts) -> bool:
+        """Retorna True se o regime no instante ``ts`` é de tendência.
+
+        Exige que AMBAS as condições sejam atendidas:
+            ADX[ts]   >= adx_threshold   (força da tendência)
+            Hurst[ts] >= hurst_threshold (persistência)
+
+        Se os indicadores não estiverem disponíveis no índice (cold-start
+        ou dados sem colunas ADX/Hurst), retorna True como fallback
+        conservador (não bloqueia por ausência de dados).
+
+        Args:
+            ts: Timestamp do sinal (deve existir no índice de self.data).
+
+        Returns:
+            True se regime é trending (sinal permitido).
+            False se regime é range/mean-reverting (sinal bloqueado).
+        """
+        p = self.params
+        # Se filtro desativado, sempre permite (retrocompatibilidade)
+        if not p.get("use_regime_filter", False):
+            return True
+
+        if self.data is None:
+            return True
+
+        try:
+            loc = self.data.index.get_loc(ts)
+        except KeyError:
+            return True  # timestamp não encontrado — fallback permissivo
+
+        # Lê ADX
+        adx_ok = True
+        if "ADX" in self.data.columns:
+            adx_val = self.data["ADX"].iloc[loc]
+            if not pd.isna(adx_val):
+                adx_ok = float(adx_val) >= float(p.get("adx_threshold", 25.0))
+
+        # Lê Hurst
+        hurst_ok = True
+        if "Hurst" in self.data.columns:
+            h_val = self.data["Hurst"].iloc[loc]
+            if not pd.isna(h_val):
+                hurst_ok = float(h_val) >= float(p.get("hurst_threshold", 0.50))
+
+        return adx_ok and hurst_ok
 
     def _in_trading_window(self, ts) -> bool:
         """Retorna True se ``ts`` cai dentro da janela permitida.

@@ -80,6 +80,15 @@ class CombinedStrategy:
         "vol_window":             20,      # janela de vol realizada (barras)
         "vol_scalar_min":         0.25,    # floor do scalar (max redução: 75%)
         "vol_scalar_max":         2.0,     # cap do scalar (max alavancagem: 2x)
+        # ── Ensemble de Sinais (Sprint-2 passo 3) ─────────────────────
+        # Combina múltiplos geradores de sinal via union+dedup para aumentar
+        # frequência de sinais qualificados sem degradar qualidade.
+        # Cada sinal ainda passa por todos os filtros (regime, horário, etc.)
+        "use_ensemble":           False,   # opt-in
+        "ensemble_ema_cross":     True,    # usar EMA crossover
+        "ensemble_breakout":      True,    # usar breakout N-barras
+        "ensemble_breakout_window": 20,    # janela de máximas/mínimas
+        "ensemble_signal_strength": 7,     # forca mínima dos novos sinais
         "time_filter_start_hour": 10,
         "time_filter_start_minute": 15,
         "time_filter_end_hour":   16,
@@ -225,6 +234,16 @@ class CombinedStrategy:
 
         all_signals = pa_signals + sent_signals
 
+        # ── Ensemble de sinais (Sprint-2 passo 3) ────────────────────────────
+        # Adiciona EMA crossover e/ou Breakout ao pool de sinais.
+        # Aumenta frequência mantendo qualidade porque cada gerador tem lógica
+        # independente — confluence implícita via deduplicação posterior.
+        if p.get("use_ensemble", False):
+            if p.get("ensemble_ema_cross", True):
+                all_signals += self._ema_crossover_signals()
+            if p.get("ensemble_breakout", True):
+                all_signals += self._breakout_signals()
+
         # ── Filtro de sentimento ──────────────────────────────────────────────
         if p["use_sentiment_filter"] and "Sentiment_Index" in self.data.columns:
             filtered = []
@@ -310,6 +329,137 @@ class CombinedStrategy:
             "atr":       atr_val,
             "signals":   signals,
         }
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Ensemble de sinais (Sprint-2 passo 3)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _ema_crossover_signals(self) -> list[dict]:
+        """Gera sinais de cruzamento de EMAs (rápida x lenta).
+
+        Long:  EMA_short cruza acima de EMA_long (golden cross)
+        Short: EMA_short cruza abaixo de EMA_long (death cross)
+        Stop  = entry -/+ ATR * atr_stop_multiplier
+        Alvo  = entry +/- ATR * atr_target_multiplier
+        """
+        data = self.data
+        if data is None or len(data) < 3:
+            return []
+
+        p        = self.params
+        strength = int(p.get("ensemble_signal_strength", 7))
+        atr_stop = float(p.get("atr_stop_multiplier",  1.5))
+        atr_tgt  = float(p.get("atr_target_multiplier", 3.0))
+
+        ema_s_col = f"EMA_{p['ema_short']}"
+        ema_l_col = f"EMA_{p['ema_long']}"
+        if ema_s_col not in data.columns or ema_l_col not in data.columns:
+            return []
+        if "ATR" not in data.columns:
+            return []
+
+        ema_s = data[ema_s_col]
+        ema_l = data[ema_l_col]
+        atr   = data["ATR"]
+        close = data["Close"]
+        signals: list[dict] = []
+
+        for i in range(1, len(data)):
+            curr_s = float(ema_s.iloc[i]);   curr_l = float(ema_l.iloc[i])
+            prev_s = float(ema_s.iloc[i-1]); prev_l = float(ema_l.iloc[i-1])
+            atr_v  = float(atr.iloc[i])
+            ts     = data.index[i]
+            c      = float(close.iloc[i])
+
+            if pd.isna(curr_s) or pd.isna(curr_l) or pd.isna(atr_v) or atr_v <= 0:
+                continue
+
+            if prev_s <= prev_l and curr_s > curr_l and p.get("allow_long", True):
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Compra",
+                    "preco":      c,
+                    "stop_loss":  c - atr_v * atr_stop,
+                    "preco_alvo": c + atr_v * atr_tgt,
+                    "estrategia": "EMA_Cross",
+                    "forca":      strength,
+                })
+            elif prev_s >= prev_l and curr_s < curr_l and p.get("allow_short", True):
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Venda",
+                    "preco":      c,
+                    "stop_loss":  c + atr_v * atr_stop,
+                    "preco_alvo": c - atr_v * atr_tgt,
+                    "estrategia": "EMA_Cross",
+                    "forca":      strength,
+                })
+
+        return signals
+
+    def _breakout_signals(self) -> list[dict]:
+        """Gera sinais de rompimento de N-barras (Donchian-style).
+
+        Long:  Close > max(High[-N:]) da janela anterior
+        Short: Close < min(Low[-N:])  da janela anterior
+        Stop  = entry -/+ ATR * atr_stop_multiplier
+        Alvo  = entry +/- ATR * atr_target_multiplier
+        """
+        data = self.data
+        if data is None or len(data) < 3:
+            return []
+
+        p        = self.params
+        n        = max(4, int(p.get("ensemble_breakout_window", 20)))
+        strength = int(p.get("ensemble_signal_strength", 7))
+        atr_stop = float(p.get("atr_stop_multiplier",  1.5))
+        atr_tgt  = float(p.get("atr_target_multiplier", 3.0))
+
+        if "ATR" not in data.columns:
+            return []
+
+        high  = data["High"]
+        low   = data["Low"]
+        close = data["Close"]
+        atr   = data["ATR"]
+        signals: list[dict] = []
+
+        # Máximas/mínimas da janela anterior (exclui barra atual via shift(1))
+        roll_high = high.shift(1).rolling(window=n, min_periods=n).max()
+        roll_low  = low.shift(1).rolling(window=n, min_periods=n).min()
+
+        for i in range(n + 1, len(data)):
+            c     = float(close.iloc[i])
+            rh    = roll_high.iloc[i]
+            rl    = roll_low.iloc[i]
+            atr_v = float(atr.iloc[i])
+            ts    = data.index[i]
+
+            if pd.isna(rh) or pd.isna(rl) or pd.isna(atr_v) or atr_v <= 0:
+                continue
+
+            if c > float(rh) and p.get("allow_long", True):
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Compra",
+                    "preco":      c,
+                    "stop_loss":  c - atr_v * atr_stop,
+                    "preco_alvo": c + atr_v * atr_tgt,
+                    "estrategia": "Breakout",
+                    "forca":      strength,
+                })
+            elif c < float(rl) and p.get("allow_short", True):
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Venda",
+                    "preco":      c,
+                    "stop_loss":  c + atr_v * atr_stop,
+                    "preco_alvo": c - atr_v * atr_tgt,
+                    "estrategia": "Breakout",
+                    "forca":      strength,
+                })
+
+        return signals
 
     # ──────────────────────────────────────────────────────────────────────────
     # Filtro de horário (Sprint-1 passo 4)

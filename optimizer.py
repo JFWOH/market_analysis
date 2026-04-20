@@ -95,6 +95,7 @@ class StrategyOptimizer:
         max_drawdown_pct: float = 50.0,
         n_jobs: int = 1,
         patience: int | None = None,
+        min_dsr: float | None = None,
     ) -> list[dict]:
         """Grid search com filtros de qualidade e paralelismo opcional.
 
@@ -112,9 +113,15 @@ class StrategyOptimizer:
             n_jobs:          Threads paralelas. 1 = sequencial. -1 = todos os cores.
             patience:        Número de combos consecutivos sem melhoria antes de parar.
                              None = sem early stopping.
+            min_dsr:         Deflated Sharpe Ratio mínimo para aceitar um resultado.
+                             Corrige Sharpe pelo número de configurações testadas
+                             (Bailey & López de Prado 2014). Se None, usa
+                             ``config.MIN_DSR`` (padrão 0.95 = 95% de confiança).
+                             Coloque 0.0 para apenas registrar sem filtrar.
 
         Returns:
             Lista de resultados válidos ordenados pela métrica (melhor primeiro).
+            Cada resultado contém um campo ``dsr`` com a probabilidade calculada.
         """
         if metric not in self._VALID_METRICS:
             logger.warning("Métrica '%s' inválida; usando 'sharpe_ratio'", metric)
@@ -146,6 +153,39 @@ class StrategyOptimizer:
 
         # Filtrar resultados de qualidade
         results = self._filter_results(raw, min_trades, max_drawdown_pct)
+
+        # ── Deflated Sharpe Ratio (correção por múltiplos testes) ──────────
+        # Calcula DSR para cada resultado válido e, opcionalmente, filtra
+        # por limiar mínimo. n_trials = nº total de combos avaliados (não só
+        # os que passaram pelos filtros anteriores).
+        import config as _cfg
+        dsr_threshold = (
+            min_dsr if min_dsr is not None
+            else float(getattr(_cfg, "MIN_DSR", 0.0))
+        )
+        n_trials_effective = max(n, 1)
+        for r in results:
+            sr_pp  = r.get("sharpe_per_period", 0.0)
+            n_obs  = int(r.get("n_return_obs", 0))
+            skew   = float(r.get("return_skew", 0.0))
+            kurt   = float(r.get("return_kurt", 3.0))
+            r["dsr"] = Backtester.deflated_sharpe_ratio(
+                sharpe_obs   = sr_pp,
+                n_obs        = n_obs,
+                n_trials     = n_trials_effective,
+                skew         = skew,
+                kurt         = kurt,
+            )
+
+        if dsr_threshold > 0.0:
+            before = len(results)
+            results = [r for r in results if r.get("dsr", 0.0) >= dsr_threshold]
+            pruned_dsr = before - len(results)
+            if pruned_dsr:
+                msg = (f"DSR filter: {pruned_dsr}/{before} combos descartados "
+                       f"(limiar={dsr_threshold:.2f}, n_trials={n_trials_effective})")
+                logger.info(msg)
+                print(f"  [DSR] {msg}")
 
         # Ordenar
         results.sort(key=lambda x: x.get(metric, float("-inf")), reverse=True)
@@ -579,7 +619,8 @@ class StrategyOptimizer:
                   f"trades={r['trade_count']}")
             print(f"     sharpe={r.get('sharpe_ratio',0):.2f} | "
                   f"calmar={r.get('calmar_ratio',0):.2f} | "
-                  f"DD={r.get('max_drawdown',0):.1f}%")
+                  f"DD={r.get('max_drawdown',0):.1f}% | "
+                  f"DSR={r.get('dsr', float('nan')):.3f}")
             print(f"     params: {r['params']}")
 
     def _save_params(self, params: dict) -> None:

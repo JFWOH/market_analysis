@@ -32,6 +32,7 @@ class Backtester:
         initial_capital: float = 100_000.0,
         commission_per_trade: float | None = None,
         slippage_pct: float | None = None,
+        cooldown_bars: int | None = None,
     ) -> None:
         """
         Args:
@@ -42,6 +43,10 @@ class Backtester:
                                   Se None, usa ``config.COMMISSION_PER_TRADE``.
             slippage_pct: Slippage fracionário aplicado ao preço de execução
                           (ex: 0.0005 = 5 bps). Se None, usa ``config.SLIPPAGE_PCT``.
+            cooldown_bars: Número de barras de silêncio após fechar um trade.
+                           Sinais gerados dentro desta janela são ignorados.
+                           Se None, usa ``config.SIGNAL_COOLDOWN_BARS``.
+                           0 = sem cooldown (comportamento antigo).
         """
         import config as _cfg  # import local evita ciclo caso config importe este módulo
 
@@ -54,6 +59,10 @@ class Backtester:
         self.slippage_pct = (
             slippage_pct if slippage_pct is not None
             else getattr(_cfg, "SLIPPAGE_PCT", 0.0)
+        )
+        self.cooldown_bars = int(
+            cooldown_bars if cooldown_bars is not None
+            else getattr(_cfg, "SIGNAL_COOLDOWN_BARS", 0)
         )
         self.trades: list[dict] = []
         self.equity: list[float] = []
@@ -82,6 +91,10 @@ class Backtester:
         params = self.strategy.params
         capital = self.initial_capital
         position = None
+        # Cooldown: índice da última barra de saída.
+        # Começa em -inf para permitir o primeiro trade sem restrição.
+        last_exit_bar = -10**9
+        cooldown_skipped = 0   # contador diagnóstico
         self.trades = []
         self.equity = [capital]
         self.equity_dates = [data.index[0]]
@@ -131,11 +144,13 @@ class Backtester:
                                              current_date, 'Stop Loss', i)
                         capital += position['amount'] + position['_pnl']
                         position = None
+                        last_exit_bar = i
                     elif high_val >= position['take_profit']:
                         self._close_position(position, position['take_profit'],
                                              current_date, 'Take Profit', i)
                         capital += position['amount'] + position['_pnl']
                         position = None
+                        last_exit_bar = i
 
                 elif position['type'] == 'short':
                     # Trailing stop update
@@ -157,14 +172,23 @@ class Backtester:
                                              current_date, 'Stop Loss', i)
                         capital += position['amount'] + position['_pnl']
                         position = None
+                        last_exit_bar = i
                     elif low_val <= position['take_profit']:
                         self._close_position(position, position['take_profit'],
                                              current_date, 'Take Profit', i)
                         capital += position['amount'] + position['_pnl']
                         position = None
+                        last_exit_bar = i
 
             # ── Abrir nova posição ────────────────────────────────────────────
-            if position is None and current_date in signal_lookup:
+            # Cooldown: ignora sinais se ainda estamos dentro da janela de
+            # silêncio pós-saída. Ataca overtrading/custos.
+            in_cooldown = (i - last_exit_bar) < self.cooldown_bars
+
+            if position is None and in_cooldown and current_date in signal_lookup:
+                cooldown_skipped += len(signal_lookup[current_date])
+
+            if position is None and not in_cooldown and current_date in signal_lookup:
                 for sig in signal_lookup[current_date]:
                     is_long     = sig['tipo'] == 'Compra'
                     entry_price = (
@@ -221,6 +245,8 @@ class Backtester:
 
         # ── Calcular métricas ──
         self.metrics = self._compute_metrics(capital, data)
+        self.metrics["cooldown_bars"]    = self.cooldown_bars
+        self.metrics["signals_skipped_cooldown"] = cooldown_skipped
         return self.metrics
 
     # ──────────────────────────────────────────────────────────────────
@@ -341,6 +367,114 @@ class Backtester:
         return size if size >= min_amount else 0.0
 
     @staticmethod
+    def deflated_sharpe_ratio(
+        sharpe_obs: float,
+        n_obs: int,
+        n_trials: int,
+        skew: float = 0.0,
+        kurt: float = 3.0,
+        sharpe_variance: float | None = None,
+    ) -> float:
+        """Calcula o Deflated Sharpe Ratio (Bailey & López de Prado 2014).
+
+        Responde à pergunta: "dado que testei N configurações de parâmetros,
+        qual a probabilidade de que o Sharpe observado seja realmente > 0
+        (e não ruído de múltiplos testes + não-normalidade)?"
+
+        Fórmulas (per-period Sharpe):
+            t_ratio = (SR_obs - SR_0) * sqrt(n_obs - 1) /
+                      sqrt(1 - skew*SR_obs + ((kurt - 1) / 4) * SR_obs²)
+            DSR = Φ(t_ratio)
+
+        onde SR_0 (Sharpe esperado do melhor de N trials sob a nula):
+            SR_0 = sqrt(V[SR]) × [(1-γ)·Z⁻¹(1 - 1/N) + γ·Z⁻¹(1 - 1/(N·e))]
+
+        γ ≈ 0.5772 (Euler-Mascheroni); e ≈ 2.7183.
+
+        Args:
+            sharpe_obs:      Sharpe observado *por período* (não anualizado).
+            n_obs:           Número de observações (retornos) usados no Sharpe.
+            n_trials:        Número de configurações testadas (≥ 1).
+            skew:            Skewness dos retornos (normal = 0).
+            kurt:            Kurtosis *não-excesso* (normal = 3.0).
+            sharpe_variance: Variância amostral dos Sharpes dos trials.
+                             Se None, usa o valor teórico sob a nula = 1 / n_obs
+                             (conforme Bailey & López de Prado 2014, eq. 4).
+
+        Returns:
+            Probabilidade DSR ∈ [0, 1]. Convencionalmente:
+                ≥ 0.95 → confiança estatística (threshold recomendado);
+                < 0.50 → Sharpe provavelmente é ruído.
+
+        Riscos:
+            - n_obs < 30 torna o teste muito pouco confiável.
+            - n_trials = 1 recupera o teste de Sharpe clássico.
+        """
+        import math
+        from math import erf, sqrt, log, exp
+
+        if n_obs < 4 or n_trials < 1:
+            return 0.0
+
+        # Variância teórica do Sharpe estimador sob a hipótese nula.
+        if sharpe_variance is None or sharpe_variance <= 0:
+            sharpe_variance = 1.0 / max(n_obs, 1)
+
+        # Inversa da normal padrão (aproximação de Peter Acklam). Essa função
+        # é extremamente precisa em [1e-15, 1 - 1e-15] e evita dependência
+        # de scipy. Fonte: https://web.archive.org/web/...peter.acklam/
+        def _norm_ppf(p: float) -> float:
+            if p <= 0.0 or p >= 1.0:
+                return 0.0
+            a = [-3.969683028665376e+01,  2.209460984245205e+02,
+                 -2.759285104469687e+02,  1.383577518672690e+02,
+                 -3.066479806614716e+01,  2.506628277459239e+00]
+            b = [-5.447609879822406e+01,  1.615858368580409e+02,
+                 -1.556989798598866e+02,  6.680131188771972e+01,
+                 -1.328068155288572e+01]
+            c = [-7.784894002430293e-03, -3.223964580411365e-01,
+                 -2.400758277161838e+00, -2.549732539343734e+00,
+                  4.374664141464968e+00,  2.938163982698783e+00]
+            d = [ 7.784695709041462e-03,  3.224671290700398e-01,
+                  2.445134137142996e+00,  3.754408661907416e+00]
+            p_low  = 0.02425
+            p_high = 1 - p_low
+            if p < p_low:
+                q = math.sqrt(-2 * math.log(p))
+                return (((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) \
+                       / ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1)
+            if p <= p_high:
+                q = p - 0.5
+                r = q*q
+                return (((((a[0]*r + a[1])*r + a[2])*r + a[3])*r + a[4])*r + a[5]) * q \
+                       / (((((b[0]*r + b[1])*r + b[2])*r + b[3])*r + b[4])*r + 1)
+            q = math.sqrt(-2 * math.log(1 - p))
+            return -(((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) \
+                   / ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1)
+
+        # Normal CDF via erf (stdlib)
+        def _norm_cdf(x: float) -> float:
+            return 0.5 * (1.0 + erf(x / sqrt(2.0)))
+
+        euler_gamma = 0.5772156649015329
+
+        # SR esperado do *melhor* de N trials sob a nula
+        if n_trials <= 1:
+            expected_max_sr = 0.0
+        else:
+            term1 = (1 - euler_gamma) * _norm_ppf(1 - 1.0 / n_trials)
+            term2 = euler_gamma * _norm_ppf(1 - 1.0 / (n_trials * exp(1)))
+            expected_max_sr = sqrt(sharpe_variance) * (term1 + term2)
+
+        # Denominador (correção por skew/kurt). Clamp para evitar sqrt de neg.
+        denom_sq = 1.0 - skew * sharpe_obs + ((kurt - 1.0) / 4.0) * sharpe_obs ** 2
+        denom_sq = max(denom_sq, 1e-12)
+        denom    = sqrt(denom_sq)
+
+        t_stat = (sharpe_obs - expected_max_sr) * sqrt(max(n_obs - 1, 1)) / denom
+        return float(_norm_cdf(t_stat))
+
+    @staticmethod
     def _annualization_factor(data: pd.DataFrame) -> float:
         """Calcula o fator de anualização correto para o Sharpe ratio.
 
@@ -426,6 +560,21 @@ class Backtester:
         sharpe = (ann_factor * period_returns.mean() /
                   max(period_returns.std(), 1e-9))
 
+        # Sharpe por-período (não anualizado) — necessário para Deflated Sharpe.
+        sharpe_per_period = (period_returns.mean() /
+                             max(period_returns.std(), 1e-9))
+
+        # Skew e kurt dos retornos — usados no cálculo do Deflated Sharpe Ratio
+        # (Bailey & López de Prado 2014). kurtosis aqui é o valor *não-excesso*
+        # (normal = 3.0), conforme exige a fórmula.
+        n_obs = int(len(period_returns))
+        if n_obs >= 4:
+            ret_skew = float(period_returns.skew())
+            ret_kurt = float(period_returns.kurt()) + 3.0   # pandas retorna excesso
+        else:
+            ret_skew = 0.0
+            ret_kurt = 3.0
+
         # Pattern stats
         pattern_stats = {}
         for t in self.trades:
@@ -486,6 +635,10 @@ class Backtester:
             'profit_factor':      profit_factor,
             'max_drawdown':       max_drawdown,
             'sharpe_ratio':       sharpe,
+            'sharpe_per_period':  sharpe_per_period,
+            'return_skew':        ret_skew,
+            'return_kurt':        ret_kurt,
+            'n_return_obs':       n_obs,
             'sortino_ratio':      sortino,
             'calmar_ratio':       calmar,
             # Sequências
@@ -617,6 +770,9 @@ class Backtester:
         print(f"  Duração Média (bars):  {m.get('avg_duration_bars', 0):>11.1f}")
         print(f"  Custos Totais (R$):    {m.get('total_commission', 0):>11,.2f}")
         print(f"  Slippage (por lado):   {m.get('slippage_pct', 0) * 100:>10.3f}%")
+        if m.get('cooldown_bars', 0) > 0:
+            print(f"  Cooldown (barras):     {m.get('cooldown_bars', 0):>11d}")
+            print(f"  Sinais ignorados:      {m.get('signals_skipped_cooldown', 0):>11d}")
         print("=" * 55)
 
         if self.trades:

@@ -44,6 +44,19 @@ BACKTEST_INITIAL_CAPITAL = 100_000.0
 COMMISSION_PER_TRADE = _env_float("COMMISSION_PER_TRADE", 5.0)   # R$ por execução (entrada OU saída)
 SLIPPAGE_PCT = _env_float("SLIPPAGE_PCT", 0.0005)                # 5 bps por execução
 
+# Cooldown entre trades (em barras). Após fechar uma posição, novos sinais
+# dentro desta janela são ignorados. Reduz overtrading e custos.
+#   0 = desabilitado; 4 = padrão recomendado (ataca o diagnóstico de
+#   overtrading identificado no backtest: custos = 83% do prejuízo).
+SIGNAL_COOLDOWN_BARS: int = int(os.environ.get("SIGNAL_COOLDOWN_BARS", "4"))
+
+# ─── Otimização / Deflated Sharpe Ratio ───
+# DSR mínimo aceitável ao ranquear resultados do grid search.
+# 0.95 = 95% de confiança estatística de que o Sharpe observado ≠ 0 após
+# correção para múltiplos testes e não-normalidade (Bailey & López de Prado 2014).
+# Coloque 0.0 para desabilitar o filtro (apenas registra o DSR sem filtrar).
+MIN_DSR: float = _env_float("MIN_DSR", 0.95)
+
 # ─── Dashboard ───
 DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "127.0.0.1")
 DASHBOARD_PORT = int(os.environ.get("DASHBOARD_PORT", "5000"))

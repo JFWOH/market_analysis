@@ -103,6 +103,59 @@ class TestMacroDirectionLogic:
             {"data": pd.Timestamp("2024-01-01"), "tipo": "Venda"}) is True
 
 
+class TestMacroDirectionBoost:
+    def test_verdict_aligned_uptrend_compra(self):
+        df = _mk(slope=1.0, n=120, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(TechnicalIndicators.compute_all(df))
+        s.params.update({
+            "macro_direction_lock": True,
+            "macro_direction_hurst_min": -1.0,
+        })
+        ts = s.data.index[100]
+        allowed, aligned = s._macro_direction_verdict(
+            {"data": ts, "tipo": "Compra", "estrategia": "X"})
+        assert allowed is True and aligned is True
+
+    def test_verdict_not_aligned_flat(self):
+        df = _mk(slope=0.0, n=120, noise=0.1)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(TechnicalIndicators.compute_all(df))
+        s.params.update({
+            "macro_direction_lock": True,
+            "macro_direction_hurst_min": -1.0,
+        })
+        ts = s.data.index[100]
+        allowed, aligned = s._macro_direction_verdict(
+            {"data": ts, "tipo": "Compra", "estrategia": "X"})
+        # flat: passa mas não alinhado
+        assert allowed is True and aligned is False
+
+    def test_generate_signals_applies_boost(self):
+        df = _mk(slope=1.0, n=150, noise=0.1)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(TechnicalIndicators.compute_all(df))
+        s.params.update({
+            "use_ensemble":              True,
+            "ensemble_ema_cross":        True,
+            "ensemble_breakout":         True,
+            "use_regime_filter":         False,
+            "use_sentiment_filter":      False,
+            "filter_by_hour":            False,
+            "macro_direction_lock":      True,
+            "macro_direction_hurst_min": -1.0,
+            "macro_direction_boost":     1.5,
+        })
+        sigs = s.generate_signals()
+        compras = [x for x in sigs if x["tipo"] == "Compra"]
+        if compras:
+            # Pelo menos um Compra deve ter size_mult aplicado (~1.5)
+            assert any(abs(x.get("size_mult", 1.0) - 1.5) < 1e-9 for x in compras)
+
+    def test_boost_default_noop(self):
+        assert CombinedStrategy.DEFAULT_PARAMS["macro_direction_boost"] == 1.0
+
+
 class TestMacroDirectionIntegration:
     def test_generate_signals_drops_shorts_in_uptrend(self):
         df = _mk(slope=1.0, n=150, noise=0.1)

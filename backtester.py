@@ -303,6 +303,14 @@ class Backtester:
                             if kelly_scalar > 0:
                                 pos_amount *= kelly_scalar
 
+                    # ── Per-signal size multiplier (Sprint-12) ─────────────
+                    # Permite que a estratégia carregue um boost/redução
+                    # de tamanho via sig["size_mult"] (default 1.0). Útil
+                    # para escalar Compras em uptrend macro confirmado.
+                    sm = float(sig.get("size_mult", 1.0) or 1.0)
+                    sm = max(0.1, min(3.0, sm))  # clamp defensivo
+                    pos_amount *= sm
+
                     if pos_amount < 1000.0:
                         continue
 

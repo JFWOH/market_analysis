@@ -60,6 +60,21 @@ CONFIGS = {
         macro_direction_lock=True, macro_direction_window=60,
         macro_direction_ret_min=0.05, macro_direction_hurst_min=0.50,
     ),
+    "Sprint-12+Lock(0.08,0.55)": dict(
+        use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
+        use_vol_targeting=True, vol_target_annual=0.15,
+        use_ensemble=True, ensemble_ema_cross=True, ensemble_breakout=True,
+        macro_direction_lock=True, macro_direction_window=60,
+        macro_direction_ret_min=0.08, macro_direction_hurst_min=0.55,
+    ),
+    "Sprint-12+Lock+Boost1.5": dict(
+        use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
+        use_vol_targeting=True, vol_target_annual=0.15,
+        use_ensemble=True, ensemble_ema_cross=True, ensemble_breakout=True,
+        macro_direction_lock=True, macro_direction_window=60,
+        macro_direction_ret_min=0.05, macro_direction_hurst_min=0.50,
+        macro_direction_boost=1.5,
+    ),
     "Sprint-10+FibMacro60": dict(
         use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
         use_vol_targeting=True, vol_target_annual=0.15,

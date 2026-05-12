@@ -109,6 +109,16 @@ class CombinedStrategy:
         "fib_regime_macro_window":  0,      # barras (0 = desativa modo macro)
         "fib_macro_adx_min":        20.0,   # threshold relaxado p/ média
         "fib_macro_hurst_min":      0.50,
+        # ── Macro Direction Lock (Sprint-11) ───────────────────────────
+        # Bloqueia entradas contrárias ao regime macro confirmado.
+        # Em uptrend macro (retorno cumulativo > X% E Hurst médio > Y),
+        # bloqueia Vendas. Em downtrend simétrico, bloqueia Compras.
+        # Objetivo: recuperar alpha em bull/bear sustentados onde sinais
+        # de reversão sangram capital contra a direção dominante.
+        "macro_direction_lock":     False,  # opt-in
+        "macro_direction_window":   60,     # barras de lookback
+        "macro_direction_ret_min":  0.05,   # 5% acumulado para "confirmado"
+        "macro_direction_hurst_min": 0.55,  # Hurst médio mínimo
         # ── Meta-Labeler (Sprint-4 passo 1) ───────────────────────────────
         # Classificador secundário (RandomForest) que filtra sinais do modelo
         # primário pelos de maior probabilidade de acerto estimada.
@@ -310,6 +320,14 @@ class CombinedStrategy:
             all_signals = [s for s in all_signals if s["tipo"] != "Compra"]
         if not p["allow_short"]:
             all_signals = [s for s in all_signals if s["tipo"] != "Venda"]
+
+        # ── Macro Direction Lock (Sprint-11) ──────────────────────────────────
+        if p.get("macro_direction_lock", False) and all_signals:
+            before = len(all_signals)
+            all_signals = [s for s in all_signals
+                           if self._macro_direction_allows(s)]
+            logger.debug("macro_direction_lock: %d -> %d sinais (%d bloqueados)",
+                         before, len(all_signals), before - len(all_signals))
 
         # ── Filtro de horário intraday (Sprint-1 passo 4) ─────────────────────
         # Ataca ruído de abertura/fechamento/almoço. No-op para dados diários.
@@ -698,6 +716,58 @@ class CombinedStrategy:
             return 0 < median_sec < 20 * 3600   # < 20h = intraday
         except (TypeError, AttributeError):
             return False
+
+    def _macro_direction_allows(self, signal: dict) -> bool:
+        """Sprint-11 — bloqueia sinal contrário ao regime macro confirmado.
+
+        Computa o retorno cumulativo nos últimos ``macro_direction_window``
+        bars antes de ``signal["data"]`` e o Hurst médio na mesma janela.
+        Se ambos confirmam uptrend (ret > ret_min E Hurst > hurst_min),
+        sinais de Venda são bloqueados. Simétrico para downtrend.
+
+        Retorna True (permite) por padrão — só bloqueia quando o regime
+        macro está claramente confirmado e o sinal o contraria.
+        """
+        if self.data is None:
+            return True
+        p = self.params
+        try:
+            loc = self.data.index.get_loc(signal["data"])
+        except KeyError:
+            return True
+
+        w = int(p.get("macro_direction_window", 60))
+        if w <= 0 or loc < 2:
+            return True
+        lo = max(0, loc - w + 1)
+        hi = loc + 1
+        close_seg = self.data["Close"].iloc[lo:hi]
+        if len(close_seg) < 3:
+            return True
+        c0 = float(close_seg.iloc[0])
+        c1 = float(close_seg.iloc[-1])
+        if c0 <= 0:
+            return True
+        cum_ret = (c1 / c0) - 1.0
+        ret_min = float(p.get("macro_direction_ret_min", 0.05))
+        h_min = float(p.get("macro_direction_hurst_min", 0.55))
+
+        hurst_mean = None
+        if "Hurst" in self.data.columns:
+            h_seg = self.data["Hurst"].iloc[lo:hi].dropna()
+            if not h_seg.empty:
+                hurst_mean = float(h_seg.mean())
+
+        # Confirmação dupla: retorno + Hurst (se disponível)
+        up_conf = cum_ret >= ret_min and (hurst_mean is None or hurst_mean >= h_min)
+        dn_conf = cum_ret <= -ret_min and (hurst_mean is None or hurst_mean >= h_min)
+
+        tipo = signal.get("tipo", "")
+        if up_conf and tipo == "Venda":
+            return False
+        if dn_conf and tipo == "Compra":
+            return False
+        return True
 
     def _in_trending_regime(self, ts, signal: dict | None = None) -> bool:
         """Retorna True se o regime no instante ``ts`` é de tendência.

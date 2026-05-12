@@ -267,6 +267,61 @@ class TestFibonacciRegimeBypass:
                    "tipo": "Compra"}
         assert s._in_trending_regime(fib_sig["data"], signal=fib_sig) is False
 
+    # ── Sprint-10: regime macro retrospectivo ─────────────────────────────
+
+    def test_macro_default_window_zero(self):
+        assert CombinedStrategy.DEFAULT_PARAMS["fib_regime_macro_window"] == 0
+
+    def test_macro_window_uses_mean_over_lookback(self):
+        """Com bar do pullback abaixo do threshold mas média da janela acima,
+        sinal Fib passa quando macro_window > 0."""
+        df = _mk_uptrend(n=120, slope=1.0, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(df)
+        s.prepare()
+        # Injeta ADX/Hurst sintéticos: vale 30 em [40..49], cai p/ 10 em 50
+        s.data["ADX"] = 30.0
+        s.data.loc[s.data.index[50], "ADX"] = 10.0
+        s.data["Hurst"] = 0.60
+        s.data.loc[s.data.index[50], "Hurst"] = 0.40
+
+        s.params.update({
+            "use_regime_filter":       True,
+            "adx_threshold":           25.0,
+            "hurst_threshold":         0.55,
+            "fib_regime_bypass":       False,
+            "fib_regime_macro_window": 0,    # modo strict point-in-time
+            "fib_macro_adx_min":       20.0,
+            "fib_macro_hurst_min":     0.50,
+        })
+        ts = s.data.index[50]
+        fib_sig = {"data": ts, "estrategia": "Fibonacci", "tipo": "Compra"}
+        # Strict point-in-time: ADX=10 < 25 → bloqueado
+        assert s._in_trending_regime(ts, signal=fib_sig) is False
+
+        # Ativa modo macro: média de 10 barras inclui 9*30 + 1*10 ≈ 28 → passa
+        s.params["fib_regime_macro_window"] = 10
+        assert s._in_trending_regime(ts, signal=fib_sig) is True
+
+    def test_macro_window_does_not_affect_non_fib(self):
+        df = _mk_uptrend(n=120, slope=1.0, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(df)
+        s.prepare()
+        s.data["ADX"] = 30.0
+        s.data.loc[s.data.index[50], "ADX"] = 10.0
+        s.data["Hurst"] = 0.60
+        s.params.update({
+            "use_regime_filter":       True,
+            "adx_threshold":           25.0,
+            "hurst_threshold":         0.55,
+            "fib_regime_macro_window": 10,   # ativo, mas só p/ Fib
+        })
+        ts = s.data.index[50]
+        ema = {"data": ts, "estrategia": "EMA_Crossover", "tipo": "Compra"}
+        # EMA usa point-in-time mesmo com macro_window ativo
+        assert s._in_trending_regime(ts, signal=ema) is False
+
     def test_legacy_call_no_signal_arg_still_works(self):
         """Chamada antiga _in_trending_regime(ts) sem signal continua válida."""
         df = _mk_uptrend(n=120, slope=1.0, noise=0.05)

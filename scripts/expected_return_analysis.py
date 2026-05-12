@@ -53,6 +53,15 @@ CONFIGS = {
         ensemble_fibonacci=True, fib_swing_window=20,
         fib_min_swing_atr=3.0, fib_tolerance_atr=0.5, fib_min_strength=7,
     ),
+    "Sprint-10+FibMacro60": dict(
+        use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
+        use_vol_targeting=True, vol_target_annual=0.15,
+        use_ensemble=True, ensemble_ema_cross=True, ensemble_breakout=True,
+        ensemble_fibonacci=True, fib_swing_window=20,
+        fib_min_swing_atr=3.0, fib_tolerance_atr=0.5, fib_min_strength=7,
+        fib_regime_bypass=False, fib_regime_macro_window=60,
+        fib_macro_adx_min=20.0, fib_macro_hurst_min=0.50,
+    ),
 }
 
 BEST_CFG = "Sprint-2 (Regime+VT+Ens)"

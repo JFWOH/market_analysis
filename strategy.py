@@ -102,6 +102,13 @@ class CombinedStrategy:
                                             # (fib_trend!=0 já valida swing local,
                                             # mas pode expor a ranges macro — ativar
                                             # somente após validacao por instrumento)
+        # Sprint-10: regime macro retrospectivo. Quando > 0, ADX/Hurst são
+        # avaliados pela MÉDIA sobre [ts - window, ts], em vez do valor
+        # pontual no bar do pullback (que naturalmente cai). Aplica-se a
+        # sinais Fibonacci quando fib_regime_bypass=False.
+        "fib_regime_macro_window":  0,      # barras (0 = desativa modo macro)
+        "fib_macro_adx_min":        20.0,   # threshold relaxado p/ média
+        "fib_macro_hurst_min":      0.50,
         # ── Meta-Labeler (Sprint-4 passo 1) ───────────────────────────────
         # Classificador secundário (RandomForest) que filtra sinais do modelo
         # primário pelos de maior probabilidade de acerto estimada.
@@ -727,10 +734,11 @@ class CombinedStrategy:
         if not p.get("use_regime_filter", False):
             return True
 
+        is_fib = (signal is not None
+                  and signal.get("estrategia") == "Fibonacci")
+
         # Bypass Fibonacci: confia em fib_trend como proxy de trending
-        if (signal is not None
-                and signal.get("estrategia") == "Fibonacci"
-                and p.get("fib_regime_bypass", True)):
+        if is_fib and p.get("fib_regime_bypass", False):
             return True
 
         if self.data is None:
@@ -740,6 +748,25 @@ class CombinedStrategy:
             loc = self.data.index.get_loc(ts)
         except KeyError:
             return True  # timestamp não encontrado — fallback permissivo
+
+        # Sprint-10: modo macro p/ Fibonacci — média sobre janela retrospectiva
+        macro_w = int(p.get("fib_regime_macro_window", 0) or 0)
+        if is_fib and macro_w > 0:
+            lo = max(0, loc - macro_w + 1)
+            hi = loc + 1  # inclui ts
+            adx_ok_m = True
+            if "ADX" in self.data.columns:
+                seg = self.data["ADX"].iloc[lo:hi].dropna()
+                if not seg.empty:
+                    adx_ok_m = float(seg.mean()) >= float(
+                        p.get("fib_macro_adx_min", 20.0))
+            hurst_ok_m = True
+            if "Hurst" in self.data.columns:
+                seg = self.data["Hurst"].iloc[lo:hi].dropna()
+                if not seg.empty:
+                    hurst_ok_m = float(seg.mean()) >= float(
+                        p.get("fib_macro_hurst_min", 0.50))
+            return adx_ok_m and hurst_ok_m
 
         # Lê ADX
         adx_ok = True

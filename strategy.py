@@ -98,6 +98,10 @@ class CombinedStrategy:
         "fib_min_swing_atr":        3.0,    # amplitude mínima do swing (em ATRs)
         "fib_tolerance_atr":        0.5,    # proximidade ao nível Fib (em ATRs)
         "fib_min_strength":         7,      # força do sinal Fibonacci
+        "fib_regime_bypass":        False,  # opt-in: Fib ignora ADX/Hurst point-in-time
+                                            # (fib_trend!=0 já valida swing local,
+                                            # mas pode expor a ranges macro — ativar
+                                            # somente após validacao por instrumento)
         # ── Meta-Labeler (Sprint-4 passo 1) ───────────────────────────────
         # Classificador secundário (RandomForest) que filtra sinais do modelo
         # primário pelos de maior probabilidade de acerto estimada.
@@ -317,7 +321,7 @@ class CombinedStrategy:
         if p.get("use_regime_filter", False):
             before = len(all_signals)
             all_signals = [s for s in all_signals
-                           if self._in_trending_regime(s["data"])]
+                           if self._in_trending_regime(s["data"], signal=s)]
             logger.debug("regime_filter: %d -> %d sinais (%d bloqueados)",
                          before, len(all_signals), before - len(all_signals))
 
@@ -688,12 +692,22 @@ class CombinedStrategy:
         except (TypeError, AttributeError):
             return False
 
-    def _in_trending_regime(self, ts) -> bool:
+    def _in_trending_regime(self, ts, signal: dict | None = None) -> bool:
         """Retorna True se o regime no instante ``ts`` é de tendência.
 
         Exige que AMBAS as condições sejam atendidas:
             ADX[ts]   >= adx_threshold   (força da tendência)
             Hurst[ts] >= hurst_threshold (persistência)
+
+        Sprint-9 — bypass para Fibonacci:
+            Quando ``signal["estrategia"] == "Fibonacci"`` e o parâmetro
+            ``fib_regime_bypass`` está ativo, o ADX/Hurst point-in-time é
+            ignorado. Justificativa: o gerador Fibonacci só emite quando
+            ``fib_trend != 0``, o que por construção exige um swing de
+            amplitude >= ``fib_min_swing_atr × ATR`` — proxy estrutural
+            do regime de tendência. Como pullbacks reduzem ADX/Hurst
+            transitoriamente, exigir o threshold no momento do pullback
+            elimina exatamente os setups que queremos capturar.
 
         Se os indicadores não estiverem disponíveis no índice (cold-start
         ou dados sem colunas ADX/Hurst), retorna True como fallback
@@ -701,6 +715,8 @@ class CombinedStrategy:
 
         Args:
             ts: Timestamp do sinal (deve existir no índice de self.data).
+            signal: dict completo do sinal (opcional). Usado para detectar
+                estratégia "Fibonacci" e aplicar o bypass.
 
         Returns:
             True se regime é trending (sinal permitido).
@@ -709,6 +725,12 @@ class CombinedStrategy:
         p = self.params
         # Se filtro desativado, sempre permite (retrocompatibilidade)
         if not p.get("use_regime_filter", False):
+            return True
+
+        # Bypass Fibonacci: confia em fib_trend como proxy de trending
+        if (signal is not None
+                and signal.get("estrategia") == "Fibonacci"
+                and p.get("fib_regime_bypass", True)):
             return True
 
         if self.data is None:

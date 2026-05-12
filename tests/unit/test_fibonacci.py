@@ -222,3 +222,56 @@ class TestFibonacciSignals:
         sigs = s.generate_signals()
         # Pode existir 0 (sem confluência) ou mais; só validamos que roda sem erro
         assert isinstance(sigs, list)
+
+
+# ── Sprint-9: regime bypass para Fibonacci ────────────────────────────────────
+
+class TestFibonacciRegimeBypass:
+    def test_default_param_false_opt_in(self):
+        # Bypass é opt-in: validacao empírica mostrou degradacao no IBOV diário.
+        assert CombinedStrategy.DEFAULT_PARAMS["fib_regime_bypass"] is False
+
+    def test_fibonacci_signal_bypasses_regime(self):
+        """Com regime filter ON e ADX/Hurst baixos artificialmente,
+        sinais Fibonacci ainda passam quando fib_regime_bypass=True."""
+        df = _mk_uptrend(n=120, slope=1.0, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(df)
+        s.params.update({
+            "use_regime_filter":   True,
+            "adx_threshold":       99.0,   # impossível de atender
+            "hurst_threshold":     0.99,
+            "fib_regime_bypass":   True,
+        })
+        s.prepare()
+        fib_sig = {"data": s.data.index[50], "estrategia": "Fibonacci",
+                   "tipo": "Compra"}
+        ema_sig = {"data": s.data.index[50], "estrategia": "EMA_Crossover",
+                   "tipo": "Compra"}
+        # Fibonacci passa, EMA não
+        assert s._in_trending_regime(fib_sig["data"], signal=fib_sig) is True
+        assert s._in_trending_regime(ema_sig["data"], signal=ema_sig) is False
+
+    def test_bypass_disabled_blocks_fibonacci(self):
+        df = _mk_uptrend(n=120, slope=1.0, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(df)
+        s.params.update({
+            "use_regime_filter": True,
+            "adx_threshold":     99.0,
+            "hurst_threshold":   0.99,
+            "fib_regime_bypass": False,
+        })
+        s.prepare()
+        fib_sig = {"data": s.data.index[50], "estrategia": "Fibonacci",
+                   "tipo": "Compra"}
+        assert s._in_trending_regime(fib_sig["data"], signal=fib_sig) is False
+
+    def test_legacy_call_no_signal_arg_still_works(self):
+        """Chamada antiga _in_trending_regime(ts) sem signal continua válida."""
+        df = _mk_uptrend(n=120, slope=1.0, noise=0.05)
+        s = CombinedStrategy(ticker="TEST")
+        s.set_data(df)
+        s.params.update({"use_regime_filter": False})
+        s.prepare()
+        assert s._in_trending_regime(s.data.index[50]) is True

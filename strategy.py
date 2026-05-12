@@ -89,6 +89,15 @@ class CombinedStrategy:
         "ensemble_breakout":      True,    # usar breakout N-barras
         "ensemble_breakout_window": 20,    # janela de máximas/mínimas
         "ensemble_signal_strength": 7,     # forca mínima dos novos sinais
+        # ── Fibonacci (Sprint-8) ──────────────────────────────────────
+        # Retracementos como sinalizador primário em regimes de tendência.
+        # Long entra em pullback a 38.2/50/61.8 em uptrend; Short simétrico.
+        # Stop no swing oposto, alvo na extensao 161.8%.
+        "ensemble_fibonacci":       False,  # opt-in
+        "fib_swing_window":         20,     # barras p/ identificar swing high/low
+        "fib_min_swing_atr":        3.0,    # amplitude mínima do swing (em ATRs)
+        "fib_tolerance_atr":        0.5,    # proximidade ao nível Fib (em ATRs)
+        "fib_min_strength":         7,      # força do sinal Fibonacci
         # ── Meta-Labeler (Sprint-4 passo 1) ───────────────────────────────
         # Classificador secundário (RandomForest) que filtra sinais do modelo
         # primário pelos de maior probabilidade de acerto estimada.
@@ -265,6 +274,8 @@ class CombinedStrategy:
                 all_signals += self._ema_crossover_signals()
             if p.get("ensemble_breakout", True):
                 all_signals += self._breakout_signals()
+            if p.get("ensemble_fibonacci", False):
+                all_signals += self._fibonacci_signals()
 
         # ── Filtro de sentimento ──────────────────────────────────────────────
         if p["use_sentiment_filter"] and "Sentiment_Index" in self.data.columns:
@@ -566,6 +577,90 @@ class CombinedStrategy:
                     "stop_loss":  c + atr_v * atr_stop,
                     "preco_alvo": c - atr_v * atr_tgt,
                     "estrategia": "Breakout",
+                    "forca":      strength,
+                })
+
+        return signals
+
+    # ──────────────────────────────────────────────────────────────────────────
+    # Fibonacci retracement entries (Sprint-8)
+    # ──────────────────────────────────────────────────────────────────────────
+
+    def _fibonacci_signals(self) -> list[dict]:
+        """Gera sinais de entrada em retracements de Fibonacci.
+
+        Long  (uptrend, fib_trend > 0): close se aproxima de 38.2/50/61.8
+                                        a partir de cima → comprar pullback.
+                                        Stop = swing_low. Alvo = fib_161 ext.
+        Short (downtrend, fib_trend < 0): close se aproxima dos mesmos níveis
+                                        a partir de baixo → vender rejeição.
+                                        Stop = swing_high. Alvo = fib_161 ext.
+
+        Tolerância: |close - level| <= fib_tolerance_atr * ATR.
+        Requer indicadores 'fib_*' já calculados em compute_all().
+        """
+        data = self.data
+        if data is None or len(data) < 3:
+            return []
+        required = {"fib_trend", "fib_38", "fib_50", "fib_61",
+                    "fib_swing_high", "fib_swing_low", "fib_161", "ATR"}
+        if not required.issubset(data.columns):
+            return []
+
+        p         = self.params
+        tol_atr   = float(p.get("fib_tolerance_atr", 0.5))
+        strength  = int(p.get("fib_min_strength", 7))
+        allow_l   = bool(p.get("allow_long", True))
+        allow_s   = bool(p.get("allow_short", True))
+
+        close = data["Close"]
+        atr   = data["ATR"]
+        trend = data["fib_trend"]
+        sw_hi = data["fib_swing_high"]
+        sw_lo = data["fib_swing_low"]
+        f38   = data["fib_38"]
+        f50   = data["fib_50"]
+        f61   = data["fib_61"]
+        f161  = data["fib_161"]
+
+        signals: list[dict] = []
+        for i in range(len(data)):
+            tr = trend.iloc[i]
+            if not np.isfinite(tr) or tr == 0:
+                continue
+            c     = float(close.iloc[i])
+            atr_v = float(atr.iloc[i])
+            if not np.isfinite(atr_v) or atr_v <= 0:
+                continue
+            tol = tol_atr * atr_v
+            levels = [f38.iloc[i], f50.iloc[i], f61.iloc[i]]
+            hit = any(np.isfinite(lv) and abs(c - float(lv)) <= tol for lv in levels)
+            if not hit:
+                continue
+
+            ts   = data.index[i]
+            ext  = float(f161.iloc[i]) if np.isfinite(f161.iloc[i]) else None
+            shi  = float(sw_hi.iloc[i]) if np.isfinite(sw_hi.iloc[i]) else None
+            slo  = float(sw_lo.iloc[i]) if np.isfinite(sw_lo.iloc[i]) else None
+
+            if tr > 0 and allow_l and slo is not None and slo < c:
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Compra",
+                    "preco":      c,
+                    "stop_loss":  slo,
+                    "preco_alvo": ext if (ext is not None and ext > c) else c + 2.0 * (c - slo),
+                    "estrategia": "Fibonacci",
+                    "forca":      strength,
+                })
+            elif tr < 0 and allow_s and shi is not None and shi > c:
+                signals.append({
+                    "data":       ts,
+                    "tipo":       "Venda",
+                    "preco":      c,
+                    "stop_loss":  shi,
+                    "preco_alvo": ext if (ext is not None and ext < c) else c - 2.0 * (shi - c),
+                    "estrategia": "Fibonacci",
                     "forca":      strength,
                 })
 

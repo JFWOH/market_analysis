@@ -164,6 +164,20 @@ class TechnicalIndicators:
             close, window=p["hurst_window"]
         )
 
+        # ── Niveis de Fibonacci (Sprint-8) ────────────────────────────────────
+        # Calcula retracoes e extensoes do ultimo swing relevante.
+        # Usa apenas barras i-1 e anteriores para evitar look-ahead.
+        fib_window        = p.get("fib_swing_window", 20)
+        fib_min_swing_atr = p.get("fib_min_swing_atr", 3.0)
+        fib = TechnicalIndicators.fibonacci_levels(
+            high, low, close,
+            atr=df["ATR"],
+            swing_window=fib_window,
+            min_swing_atr=fib_min_swing_atr,
+        )
+        for col in fib.columns:
+            df[col] = fib[col]
+
         logger.debug("Indicadores calculados: %d periodos, %d colunas",
                      len(df), len(df.columns))
         return df
@@ -500,6 +514,120 @@ class TechnicalIndicators:
         log_ret = np.log(close / close.shift(1))
         rv = log_ret.rolling(window=window, min_periods=max(window // 2, 4)).std()
         return rv * ann_factor
+
+    @staticmethod
+    def fibonacci_levels(
+        high:          pd.Series,
+        low:           pd.Series,
+        close:         pd.Series,
+        atr:           pd.Series | None = None,
+        swing_window:  int = 20,
+        min_swing_atr: float = 3.0,
+    ) -> pd.DataFrame:
+        """Niveis de Fibonacci do ultimo swing relevante (Sprint-8).
+
+        Para cada barra i, identifica o ultimo swing (high/low) nas barras
+        [i-swing_window, i-1] (janela exclusiva do bar corrente, evita
+        look-ahead) e calcula retracoes + extensoes.
+
+        Um swing e considerado valido apenas se a amplitude
+        |swing_high - swing_low| for maior que `min_swing_atr * ATR[i-1]`.
+        Isso filtra swings triviais em mercados laterais.
+
+        Direcao:
+          - "up"   : swing_low veio ANTES do swing_high (tendencia de alta)
+          - "down" : swing_high veio ANTES do swing_low (tendencia de baixa)
+
+        Niveis retornados:
+          fib_swing_high : ultimo topo do swing
+          fib_swing_low  : ultimo fundo do swing
+          fib_trend      : +1 (up), -1 (down), 0 (invalido)
+          fib_23,38,50,61,78 : retracoes (para entrada em pullback)
+          fib_127, fib_161   : extensoes (para targets)
+
+        Args:
+            high, low, close : series OHLC.
+            atr              : series ATR (opcional; se None, calcula internamente
+                              usando wilder 14).
+            swing_window     : barras para detectar o swing.
+            min_swing_atr    : impulso minimo (em ATRs) para swing ser valido.
+
+        Returns:
+            DataFrame com 10 colunas, mesmo indice dos inputs.
+        """
+        n = len(close)
+        if atr is None:
+            atr = TechnicalIndicators.atr(high, low, close, 14)
+
+        h_vals   = high.values.astype(float)
+        l_vals   = low.values.astype(float)
+        atr_vals = atr.values.astype(float)
+
+        cols = ["fib_swing_high", "fib_swing_low", "fib_trend",
+                "fib_23", "fib_38", "fib_50", "fib_61", "fib_78",
+                "fib_127", "fib_161"]
+        out = {c: np.full(n, np.nan) for c in cols}
+        out["fib_trend"] = np.zeros(n)   # 0 = indefinido
+
+        for i in range(n):
+            if i < swing_window:
+                continue
+            # Janela exclusiva do bar atual: [i - swing_window, i - 1]
+            lo = i - swing_window
+            hi = i   # python slice exclusivo → usa barras [lo, i-1]
+            window_h = h_vals[lo:hi]
+            window_l = l_vals[lo:hi]
+            if len(window_h) == 0:
+                continue
+
+            idx_h = int(np.argmax(window_h))
+            idx_l = int(np.argmin(window_l))
+            sw_hi = window_h[idx_h]
+            sw_lo = window_l[idx_l]
+            amp   = sw_hi - sw_lo
+
+            # Filtro de impulso minimo
+            atr_ref = atr_vals[i - 1] if i - 1 < n else np.nan
+            if not np.isfinite(atr_ref) or atr_ref <= 0:
+                continue
+            if amp < min_swing_atr * atr_ref:
+                continue
+            if amp <= 0:
+                continue
+
+            # Direcao: qual extremo veio primeiro
+            if idx_l < idx_h:
+                trend = 1.0    # up: lo antes do hi
+            elif idx_h < idx_l:
+                trend = -1.0   # down: hi antes do lo
+            else:
+                trend = 0.0    # mesmo bar = indeterminado
+
+            out["fib_swing_high"][i] = sw_hi
+            out["fib_swing_low"][i]  = sw_lo
+            out["fib_trend"][i]      = trend
+
+            # Retracoes medidas do extremo final em direcao ao extremo inicial:
+            #   Trend up  : retracao desce de sw_hi em direcao a sw_lo
+            #   Trend down: retracao sobe de sw_lo em direcao a sw_hi
+            if trend > 0:
+                out["fib_23"][i]  = sw_hi - 0.236 * amp
+                out["fib_38"][i]  = sw_hi - 0.382 * amp
+                out["fib_50"][i]  = sw_hi - 0.500 * amp
+                out["fib_61"][i]  = sw_hi - 0.618 * amp
+                out["fib_78"][i]  = sw_hi - 0.786 * amp
+                out["fib_127"][i] = sw_hi + 0.272 * amp   # ext 127.2
+                out["fib_161"][i] = sw_hi + 0.618 * amp   # ext 161.8
+            elif trend < 0:
+                out["fib_23"][i]  = sw_lo + 0.236 * amp
+                out["fib_38"][i]  = sw_lo + 0.382 * amp
+                out["fib_50"][i]  = sw_lo + 0.500 * amp
+                out["fib_61"][i]  = sw_lo + 0.618 * amp
+                out["fib_78"][i]  = sw_lo + 0.786 * amp
+                out["fib_127"][i] = sw_lo - 0.272 * amp
+                out["fib_161"][i] = sw_lo - 0.618 * amp
+
+        return pd.DataFrame(out, index=close.index)
 
     @staticmethod
     def _infer_ann_factor(data: pd.DataFrame) -> float:

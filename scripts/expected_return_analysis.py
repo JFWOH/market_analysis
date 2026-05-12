@@ -67,6 +67,16 @@ CONFIGS = {
         macro_direction_lock=True, macro_direction_window=60,
         macro_direction_ret_min=0.08, macro_direction_hurst_min=0.55,
     ),
+    "Sprint-13+Chandelier3.0": dict(
+        use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
+        use_vol_targeting=True, vol_target_annual=0.15,
+        use_ensemble=True, ensemble_ema_cross=True, ensemble_breakout=True,
+        macro_direction_lock=True, macro_direction_window=60,
+        macro_direction_ret_min=0.08, macro_direction_hurst_min=0.55,
+        use_partial_exit=True, partial_exit_r=1.0, partial_exit_fraction=0.5,
+        breakeven_offset_atr=0.0,
+        use_chandelier_after_be=True, chandelier_atr_mult=3.0,
+    ),
     "Sprint-12+Lock+Boost1.5": dict(
         use_regime_filter=True, adx_threshold=25.0, hurst_threshold=0.50,
         use_vol_targeting=True, vol_target_annual=0.15,

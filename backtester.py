@@ -128,6 +128,26 @@ class Backtester:
             # ── Gerenciar posição aberta ──────────────────────────────────────
             if position is not None:
 
+                # ── Chandelier Exit pós-breakeven (Sprint-13) ──────────────
+                # Após partial+breakeven, aperta o stop via Chandelier:
+                #   long:  stop = peak_high - chandelier_atr_mult * ATR
+                #   short: stop = peak_low  + chandelier_atr_mult * ATR
+                # Usa peak da barra ANTERIOR (não inclui high/low desta barra)
+                # para evitar ambiguidade de ordem intra-bar. Peak é atualizado
+                # ao final do processamento.
+                if (params.get('use_chandelier_after_be', False)
+                        and position.get('breakeven_moved', False)
+                        and atr_val > 0):
+                    ch_mult = float(params.get('chandelier_atr_mult', 3.0))
+                    if position['type'] == 'long':
+                        ch_stop = position['peak_high'] - ch_mult * atr_val
+                        if ch_stop > position['stop_loss']:
+                            position['stop_loss'] = ch_stop
+                    else:
+                        ch_stop = position['peak_low'] + ch_mult * atr_val
+                        if ch_stop < position['stop_loss']:
+                            position['stop_loss'] = ch_stop
+
                 # ── Partial Exit + Breakeven (Sprint-1 passo 3) ───────────
                 # Ao atingir +R×initial_risk, fecha fração da posição e move
                 # stop do restante para breakeven (entry + offset). Ataca
@@ -231,6 +251,15 @@ class Backtester:
                         position = None
                         last_exit_bar = i
 
+                # Sprint-13: atualiza peaks ao FINAL da barra (após exits).
+                # Garante que o chandelier da próxima barra use o peak desta
+                # barra já consolidada, sem lookahead intra-bar.
+                if position is not None:
+                    if high_val > position.get('peak_high', high_val):
+                        position['peak_high'] = high_val
+                    if low_val < position.get('peak_low', low_val):
+                        position['peak_low'] = low_val
+
             # ── Abrir nova posição ────────────────────────────────────────────
             # Cooldown: ignora sinais se ainda estamos dentro da janela de
             # silêncio pós-saída. Ataca overtrading/custos.
@@ -327,6 +356,9 @@ class Backtester:
                         'partial_done':     False,
                         'breakeven_moved':  False,
                         'pattern':          sig['estrategia'],
+                        # Sprint-13: peak tracking p/ Chandelier exit
+                        'peak_high':        entry_price,
+                        'peak_low':         entry_price,
                     }
                     # Deduzir capital alocado + comissão de entrada
                     capital -= pos_amount + self.commission_per_trade

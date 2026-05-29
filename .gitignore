@@ -60,3 +60,10 @@ data_cache/
 
 # Jupyter
 .ipynb_checkpoints/
+ 
+# Transient transfer artifacts (do not commit) 
+files.zip 
+files/ 
+ 
+# Claude Code local settings 
+.claude/ 

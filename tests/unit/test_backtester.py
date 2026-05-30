@@ -486,6 +486,65 @@ def test_annualization_short_series():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Sprint-18: MDD em base dupla (integração — testes NOVOS, aditivos)
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_dual_mdd_fields_present_and_typed():
+    """run() deve emitir os 5 campos novos de MDD em base dupla, bem tipados."""
+    df  = _make_price_series([100_000, 101_000, 102_000, 105_000, 104_000])
+    sig = _signal(df, bar=2, tipo="Compra", stop_offset=3_000, target_offset=3_000)
+    sig["preco_alvo"] = 105_000.0
+
+    bt = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                    commission_per_trade=0.0, slippage_pct=0.0)
+    m = bt.run()
+
+    for key in ("max_drawdown_total_equity_pct", "max_drawdown_capital_at_risk_pct",
+                "time_in_market_pct", "mdd_duration_total_bars", "mdd_duration_car_bars"):
+        assert key in m, f"Campo dual MDD ausente: {key}"
+
+    assert m["max_drawdown_total_equity_pct"] >= 0.0
+    assert 0.0 <= m["time_in_market_pct"] <= 100.0
+    assert isinstance(m["mdd_duration_total_bars"], int)
+    assert isinstance(m["mdd_duration_car_bars"], int)
+    print("  [OK] test_dual_mdd_fields_present_and_typed")
+
+
+def test_max_drawdown_matches_total_equity_base():
+    """Regressão: o max_drawdown legado segue numericamente igual à base total
+    do MDD dual — a integração não altera o valor histórico."""
+    prices = [100_000, 105_000, 103_000, 101_000, 98_000, 97_000, 100_000]
+    df  = _make_price_series(prices)
+    sig = _signal(df, bar=1, tipo="Compra", stop_offset=10_000, target_offset=2_000)
+
+    bt = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                    commission_per_trade=0.0, slippage_pct=0.0)
+    m = bt.run()
+
+    assert abs(m["max_drawdown"] - m["max_drawdown_total_equity_pct"]) < 1e-9
+    print("  [OK] test_max_drawdown_matches_total_equity_base")
+
+
+def test_time_in_market_pct_matches_curve():
+    """time_in_market_pct deve casar com a fração de barras em que
+    position_value > 0 na curva rastreada pelo motor."""
+    prices = [100_000, 101_000, 102_000, 103_000, 105_000, 104_000, 103_000]
+    df  = _make_price_series(prices)
+    sig = _signal(df, bar=2, tipo="Compra", stop_offset=3_000, target_offset=3_000)
+    sig["preco_alvo"] = 105_000.0
+
+    bt = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                    commission_per_trade=0.0, slippage_pct=0.0)
+    m = bt.run()
+
+    in_market = sum(1 for v in bt.position_value if v > 0.0)
+    expected  = 100.0 * in_market / len(bt.position_value)
+    assert in_market > 0, "cenário deveria ter ao menos 1 barra em mercado"
+    assert abs(m["time_in_market_pct"] - expected) < 1e-9
+    print("  [OK] test_time_in_market_pct_matches_curve")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -511,6 +570,10 @@ _TESTS = [
     test_annualization_daily,
     test_annualization_intraday_1h,
     test_annualization_short_series,
+    # Sprint-18: integração MDD em base dupla (novos)
+    test_dual_mdd_fields_present_and_typed,
+    test_max_drawdown_matches_total_equity_base,
+    test_time_in_market_pct_matches_curve,
 ]
 
 

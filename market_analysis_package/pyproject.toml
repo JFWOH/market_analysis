@@ -1,0 +1,262 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "market-analysis"
+version = "0.18.0-dev"
+description = "Sistema de análise técnica, price action, sentimento e backtesting para o mercado brasileiro."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Proprietary" }
+authors = [
+    { name = "Jeferson Wohanka" },
+]
+keywords = ["trading", "backtesting", "technical-analysis", "price-action", "b3", "quantitative"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+# ============================================================
+# Dependências de runtime (core)
+# ============================================================
+dependencies = [
+    # Dados e numérica
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "yfinance>=0.2.40",
+    # Visualização
+    "matplotlib>=3.7",
+    "plotly>=5.18",
+    # Dashboard web (legado app.py; stack GUI completa em [gui])
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+    # Utilitários
+    "tqdm>=4.66",
+    "pyyaml>=6.0",
+    "python-dateutil>=2.8",
+    "portalocker>=2.8",
+]
+
+# ============================================================
+# Extras opcionais
+# ============================================================
+[project.optional-dependencies]
+
+# Stack web local (Bloco III)
+gui = [
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+    "simple-websocket>=1.0",
+    "jinja2>=3.1",
+    "pywebview>=5.0",
+]
+
+# REST API (api.py)
+api = [
+    "fastapi>=0.110",
+    "pydantic>=2.7",
+    "uvicorn>=0.27",
+]
+
+# Machine learning (meta_labeler.py, labels.py)
+ml = [
+    "scikit-learn>=1.4",
+    "scipy>=1.11",
+]
+
+# Análise estatística (Sprint 20 — decomposição fatorial)
+stats = [
+    "statsmodels>=0.14",
+    "scipy>=1.11",
+]
+
+# Otimização Bayesiana (Sprint 21)
+optim = [
+    "optuna>=3.6",
+    "joblib>=1.4",
+]
+
+# Desenvolvimento, testes, lint
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.5.0",
+    "mypy>=1.10",
+    "types-requests",
+    "pre-commit>=3.7",
+    "playwright>=1.42",
+    "pytest-playwright>=0.4",
+    "freezegun>=1.4",
+]
+
+# Documentação
+docs = [
+    "mkdocs>=1.6",
+    "mkdocs-material>=9.5",
+]
+
+# Tudo
+all = [
+    "market-analysis[gui,api,ml,stats,optim,dev,docs]",
+]
+
+# ============================================================
+# Entry points (scripts de console)
+# ============================================================
+[project.scripts]
+market-analysis = "run:main"
+# Entry points abaixo serão ativados nos sprints respectivos,
+# à medida que os módulos forem criados na raiz (layout flat):
+#   ma-server   = "gui.server:main"        # Sprint 27
+#   ma-desktop  = "gui.desktop:main"        # Sprint 33
+#   ma-audit    = "audit_log:cli"           # Sprint 23
+#   ma-watchdog = "watchdog:cli"            # Sprint 24
+#   ma-migrate  = "scripts.migrate_json_to_sqlite:main"  # Sprint 25
+
+# ============================================================
+# Setuptools — layout FLAT (módulos top-level na raiz)
+# IMPORTANTE: este projeto NAO usa pasta src/ nem pacote market_analysis/.
+# Os módulos vivem soltos na raiz. Cada sprint que adiciona módulo novo
+# deve registrá-lo aqui. Ver CLAUDE.md secao "Layout do projeto".
+# ============================================================
+[tool.setuptools]
+py-modules = [
+    "alerts",
+    "alert_manager",
+    "api",
+    "app",
+    "backtester",
+    "config",
+    "dashboard",
+    "data_provider",
+    "indicators",
+    "labels",
+    "meta_labeler",
+    "optimizer",
+    "paper_trader",
+    "price_action",
+    "run",
+    "sentiment_analyzer",
+    "strategy",
+    "stress_test",
+    # --- Adicionados pelo programa Sprints 18-33 (descomentar ao criar) ---
+    # "metrics",               # Sprint 18
+    # "audit_log",             # Sprint 23
+    # "risk_guard",            # Sprint 24
+    # "watchdog",              # Sprint 24
+    # "walkforward_honest",    # Sprint 21
+    # "report_banner",         # Sprint 31
+    # "market_schedule",       # Sprint 32
+    # "live_data_provider",    # Sprint 32
+]
+
+# Nota: a pasta gui/ (Bloco III) E um pacote de verdade (tem submódulos).
+# Quando criada, adicionar [tool.setuptools.packages.find] com include = ["gui*", "db*"]
+
+[tool.setuptools.package-data]
+"*" = ["db/*.sql"]
+
+# ============================================================
+# Pytest
+# ============================================================
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+    "-q",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+markers = [
+    "slow: testes que demoram mais que 5s",
+    "integration: testes que tocam DB / processos externos",
+    "e2e: testes end-to-end via Playwright (UI completa)",
+    "windows_only: pulados em Linux/macOS",
+]
+
+[tool.coverage.run]
+branch = true
+omit = [
+    "*/tests/*",
+    "*/scripts/*",
+    "*/__main__.py",
+    "venv/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
+show_missing = true
+skip_covered = false
+
+# ============================================================
+# Ruff — lint e format
+# ============================================================
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+exclude = [
+    "_deprecated",
+    "venv",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "data",
+    "data_cache",
+    "logs",
+    "market_analysis_package",
+]
+
+[tool.ruff.lint]
+select = ["E", "W", "F", "I", "B", "C4", "UP", "SIM", "RUF"]
+ignore = ["E501", "B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["F401", "F811", "B011"]
+"scripts/**/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+# ============================================================
+# Mypy — type checking (progressivo)
+# ============================================================
+[tool.mypy]
+python_version = "3.10"
+warn_unused_configs = true
+warn_return_any = true
+ignore_missing_imports = true
+follow_imports = "silent"
+check_untyped_defs = true
+no_implicit_optional = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+exclude = "(_deprecated|venv|build|dist|market_analysis_package)"
+
+[[tool.mypy.overrides]]
+module = ["yfinance.*", "matplotlib.*", "plotly.*", "scipy.*", "statsmodels.*", "optuna.*", "sklearn.*"]
+ignore_missing_imports = true

@@ -46,6 +46,9 @@ resultados/
 resultados_backtest/
 optimization/*.png
 validation/*.png
+# Sprint 18: gráfico do finding é regenerável (python scripts/rerun_bear_validation_dual_mdd.py);
+# a evidência versionada é o CSV + a tabela no finding, não o PNG.
+findings/sprint_18_data/*.png
 graficos/
 data_cache/
 *.parquet

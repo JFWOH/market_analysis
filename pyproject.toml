@@ -150,7 +150,7 @@ py-modules = [
     "strategy",
     "stress_test",
     # --- Adicionados pelo programa Sprints 18-33 (descomentar ao criar) ---
-    # "metrics",               # Sprint 18
+    "metrics",                 # Sprint 18
     # "audit_log",             # Sprint 23
     # "risk_guard",            # Sprint 24
     # "watchdog",              # Sprint 24

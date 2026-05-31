@@ -66,6 +66,9 @@ class Backtester:
         )
         self.trades: list[dict] = []
         self.equity: list[float] = []
+        # Sprint-18: valor da posição aberta marcado a mercado por barra (0.0
+        # quando flat). Alimenta o MDD em base dupla (equity total + CAR).
+        self.position_value: list[float] = []
         self.equity_dates: list = []
         self.metrics: dict = {}
 
@@ -101,6 +104,7 @@ class Backtester:
         cooldown_skipped = 0   # contador diagnóstico
         self.trades = []
         self.equity = [capital]
+        self.position_value = [0.0]   # Sprint-18: capital exposto por barra
         self.equity_dates = [data.index[0]]
 
         logger.info("Iniciando backtest: %d períodos, %d sinais",
@@ -366,6 +370,7 @@ class Backtester:
 
             # Equity tracking
             current_equity = capital
+            pos_val_marked = 0.0   # Sprint-18: capital exposto a mercado nesta barra
             if position is not None:
                 # Mark-to-market
                 if position['type'] == 'long':
@@ -373,8 +378,10 @@ class Backtester:
                 else:
                     mtm = (position['entry_price'] / close - 1) * position['amount']
                 current_equity += position['amount'] + mtm
+                pos_val_marked = position['amount'] + mtm   # módulo do nominal exposto
 
             self.equity.append(current_equity)
+            self.position_value.append(pos_val_marked)
             self.equity_dates.append(current_date)
 
         # ── Fechar posição aberta no final ──────────────────────────────────
@@ -749,6 +756,20 @@ class Backtester:
         drawdown = ((eq / peak) - 1) * 100
         max_drawdown = abs(drawdown.min())
 
+        # ── Sprint-18: MDD em base dupla (equity total + capital-em-risco) ──
+        # Aditivo: não altera max_drawdown (legado). Defensivo: alguns testes
+        # constroem o Backtester via __new__ e não populam position_value;
+        # nesse caso usamos uma curva flat (zeros) → CAR vira NaN, sem quebrar.
+        from metrics import compute_drawdown_dual
+
+        position_value = getattr(self, "position_value", None)
+        if position_value is None or len(position_value) != len(self.equity):
+            position_value = [0.0] * len(self.equity)
+        _dual = compute_drawdown_dual(
+            pd.Series(self.equity, index=self.equity_dates),
+            pd.Series(position_value, index=self.equity_dates),
+        )
+
         # Returns
         days = (data.index[-1] - data.index[0]).days
         years = max(days / 365.0, 0.1)
@@ -835,6 +856,12 @@ class Backtester:
             # Risco
             'profit_factor':      profit_factor,
             'max_drawdown':       max_drawdown,
+            # Sprint-18: MDD em base dupla (aditivo; max_drawdown segue intacto)
+            'max_drawdown_total_equity_pct':    _dual['total_equity_mdd'],
+            'max_drawdown_capital_at_risk_pct': _dual['capital_at_risk_mdd'],
+            'time_in_market_pct':               _dual['time_in_market_pct'],
+            'mdd_duration_total_bars':          _dual['total_equity_mdd_duration_bars'],
+            'mdd_duration_car_bars':            _dual['capital_at_risk_mdd_duration_bars'],
             'sharpe_ratio':       sharpe,
             'sharpe_per_period':  sharpe_per_period,
             'return_skew':        ret_skew,

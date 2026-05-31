@@ -68,13 +68,17 @@ O sistema continua **protetor relativo** a B&H. O que cai é a narrativa de imun
 
 ## Impacto no RELATORIO_TECNICO.md
 
-**🔴 GATILHO ACIONADO** — o critério de aceitação 8 ("se CAR ≥ 5× equity em algum cenário") disparou com folga (mediana 24×, máximo 45×). A atualização do `RELATORIO_TECNICO.md` é **recomendada e necessária**, mas **NÃO foi aplicada neste checkpoint**: reescrever o headline do produto é mudança de narrativa que merece a decisão explícita do desenvolvedor (ver o RELATÓRIO DE CHECKPOINT). Pendências propostas (mesmo PR ou follow-up dedicado, à sua escolha):
+**🔴 GATILHO ACIONADO** — o critério de aceitação 8 ("se CAR ≥ 5× equity em algum cenário") disparou com folga (mediana 24×, máximo 45×). Decisão híbrida do desenvolvedor (ver Decisões tomadas, item 5):
 
-- [ ] Seção 1.1 (Perfil estratégico validado): "Max Drawdown" desdobrado em duas colunas (equity / CAR)
-- [ ] Seção 1.2 (Validação contra crashes): tabela com a nova coluna MDD-CAR
-- [ ] Seção 7 (Resultados Empíricos): tabela cross-ticker atualizada
-- [ ] Sumário Executivo: frase de honestidade sobre as duas bases
-- [ ] Glossário: definição de MDD-equity vs MDD-CAR
+**Aplicado neste sprint (correção mínima e factual):**
+- [x] Seção 1.1: nota de remissão no topo apontando para este finding (números originais intactos)
+- [x] Seção 1.2: idem
+- [x] Seção 7: idem
+
+**Deferido para o Marco do Bloco I (`MARCO_BLOCO_I.md`, pós-Sprint 22) — reescrita profunda da narrativa:**
+- [ ] Desdobrar "Max Drawdown" em duas colunas (equity / CAR) nas tabelas
+- [ ] Reavaliar o posicionamento "downside protection insurance" à luz de S19–S22
+- [ ] Sumário Executivo + glossário (MDD-equity vs MDD-CAR)
 
 ---
 
@@ -84,6 +88,7 @@ O sistema continua **protetor relativo** a B&H. O que cai é a narrativa de imun
 2. **Janela de MDD** medida sobre o período de avaliação (sem warmup), para comparabilidade com o B&H eval-only do script legado.
 3. **Convenção CAR** (barra de abertura fora; duas barras consecutivas) documentada no docstring e nesta metodologia — comportamento explícito, não silencioso.
 4. **PNG não versionado** (`findings/sprint_18_data/*.png` no `.gitignore`); a evidência versionada é o CSV + esta tabela. O gráfico é regenerável via `python scripts/rerun_bear_validation_dual_mdd.py`.
+5. **Reescrita profunda do posicionamento DEFERIDA para o Marco do Bloco I** (`MARCO_BLOCO_I.md`, pós-Sprint 22). Decisão híbrida do desenvolvedor: a revisão de fundo da narrativa ("'downside protection insurance' ainda se sustenta?") só deve ocorrer quando os findings de custos (S19), decomposição fatorial (S20), walk-forward honesto (S21) e bears expandido (S22) estiverem todos na mesa — reescrever com base num só finding seria prematuro. Neste sprint, aplicou-se apenas a **correção mínima e factual** no `RELATORIO_TECNICO.md`: uma nota de remissão no topo das seções 1.1, 1.2 e 7 apontando para este finding (sem alterar números nem narrativa), eliminando a contradição aberta entre relatório e finding.
 
 ---
 

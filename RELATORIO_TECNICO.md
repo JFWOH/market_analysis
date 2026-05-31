@@ -15,6 +15,8 @@ O `market_analysis` é um sistema integrado de pesquisa quantitativa, backtestin
 
 ### 1.1 Perfil estratégico validado
 
+> ⚠️ **MDD nesta seção reflete equity total.** Ver `findings/sprint_18_mdd_dual.md` (Sprint 18) para desambiguação — o MDD sobre capital em risco é materialmente maior (mediana 17,5% vs 0,8%).
+
 A configuração de referência (Sprint-13) apresenta o seguinte perfil empírico, validado em séries reais multi-instrumento e multi-regime:
 
 | Métrica | Bull market | Bear market | Mix histórico |
@@ -28,6 +30,8 @@ A configuração de referência (Sprint-13) apresenta o seguinte perfil empíric
 O perfil é qualificado como **"downside protection insurance"**: paga prêmio em bull markets (alpha negativo) e paga em sinistro (preservação assimétrica em crashes). Hipóteses híbridas (50/50 com B&H) foram testadas e empiricamente rejeitadas — o produto é a estratégia pura, com o blending ocorrendo no portfolio do cliente.
 
 ### 1.2 Validação contra crashes históricos (7 cenários)
+
+> ⚠️ **MDD nesta seção reflete equity total.** Ver `findings/sprint_18_mdd_dual.md` (Sprint 18) para desambiguação — o MDD sobre capital em risco é materialmente maior (mediana 17,5% vs 0,8%).
 
 | Crash | Período | B&H MDD | Sistema MDD | Razão |
 |---|---|---|---|---|
@@ -382,6 +386,8 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 ---
 
 ## 7. Resultados Empíricos Consolidados
+
+> ⚠️ **MDD nesta seção reflete equity total.** Ver `findings/sprint_18_mdd_dual.md` (Sprint 18) para desambiguação — o MDD sobre capital em risco é materialmente maior (mediana 17,5% vs 0,8%).
 
 ### 7.1 Evolução do Profit Factor OOS no IBOVESPA
 

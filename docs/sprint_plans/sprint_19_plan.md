@@ -194,7 +194,8 @@ def find_breakeven_slippage(
 - `argparse`: `--ticker`, `--config` (default `sprint_13_reference`), `--all-tickers`,
   `--n-jobs`. Guard `if __name__ == "__main__":` (multiprocessing no Windows).
 - Tickers: `^BVSP`, `VALE3.SA`, `PETR4.SA`. Janela **OOS = último 30% do histórico**
-  por ticker (ver Dúvida 3).
+  por ticker (decisão 3). Cada ticker usa sua própria janela → **datas de calendário
+  diferem entre tickers** (documentar no finding).
 - **Lição do S18:** checar conectividade yfinance e **recusar dado sintético disfarçado
   de real** (abortar/avisar se `source=="synthetic"`).
 - Saídas em `findings/sprint_19_data/`: `sweep_bvsp.csv`, `sweep_vale3.csv`,
@@ -206,6 +207,10 @@ def find_breakeven_slippage(
 
 - Preenche o template `market_analysis_package/findings/sprint_19_cost_sensitivity.md`
   com números reais. Responde explicitamente, por ticker: "sobrevive a slippage 0.3%?".
+- **Disclosures obrigatórias na Metodologia do finding:** (a) o sweep usa comissão
+  **percentual** e **zera a comissão absoluta de R$ 5/trade** do baseline — a comparação
+  com o PF do relatório original deve considerar isso; (b) cada ticker usa sua própria
+  janela de **últimos 30%**, logo as datas de calendário diferem entre tickers.
 - **Critério 7 da spec:** se `^BVSP` **não** passa @ slip 0.3% → TL;DR em letras grandes
   + atualização do `RELATORIO_TECNICO.md`. **Aplicar a lição híbrida do S18:** correção
   mínima (cross-ref nas seções 5.7.1/7/8.1/8.2) agora; reescrita profunda do
@@ -225,27 +230,27 @@ def find_breakeven_slippage(
 
 ---
 
-## Dúvidas que precisam do seu input
+## Decisões (respostas do desenvolvedor — todas resolvidas)
 
-1. **Comissão % no backtester (Path A):** confirmo adicionar `commission_pct`
-   (fracionário, default 0.0, não-quebrante)? É a base de todo o eixo "comissão" do
-   sweep. *(Recomendo sim.)*
-2. **Seam de teste:** aceito estender a assinatura com `strategy_factory=None` opcional
-   (default = padrão `CombinedStrategy`) para injetar uma estratégia mock determinística
-   nos testes (casos 1 e 2 exigem P&L controlado)? *(Recomendo sim; é a forma limpa de
-   testar sem rede e sem depender do comportamento da CombinedStrategy em série sintética.)*
-3. **Janela OOS:** último 30% do histórico por ticker (recomendado, sem datas fixas) ou
-   datas fixas 2024–2026 como sugere a spec?
-4. **Fonte do `sprint_13_reference`:** reusar `SPRINT13_PARAMS` de
-   `scripts.bear_market_validation` (DRY) — confirmo? Ou criar já um módulo/registry de
-   config? *(Recomendo reusar; registry YAML fica para S21+.)*
-5. **Comissão absoluta nos sweeps:** fixar `commission_per_trade=0.0` nas corridas do
-   sweep para isolar os eixos percentuais (senão o R$ 5.0 default contamina)? *(Recomendo sim.)*
-6. **Cobertura de `scripts/`:** o `pyproject` omite `*/scripts/*` da cobertura. Para
-   provar ≥ 90% em `cost_sensitivity.py`, medir explicitamente (invocação dedicada que
-   não aplica o omit). Confirmo essa abordagem?
-7. **RELATORIO_TECNICO.md (se ^BVSP falhar @0.3%):** aplicar a via híbrida do S18
-   (cross-ref factual agora + reescrita profunda deferida ao Marco do Bloco I)? *(Recomendo sim.)*
+1. **Comissão % no backtester:** ✅ SIM — adicionar `commission_pct` fracionário
+   (default 0.0, não-quebrante). Aditivo, zero regressão nos 519 legados; os 2 testes
+   aditivos vão em `test_backtester.py` sem tocar nas 24 funções existentes.
+2. **Seam de teste:** ✅ SIM — `strategy_factory=None` para os testes 1 e 2. **Restrição:
+   o caminho de produção (sem mock) não pode ficar mais complexo** — o seam serve só aos
+   testes. Confirmar isso no relatório do CP2.
+3. **Janela OOS:** ✅ **ÚLTIMO 30% do histórico por ticker** (split proporcional, coerente
+   com `expected_return_analysis` e S18). **Documentar no finding** que cada ticker usa
+   sua própria janela de últimos 30% → as datas de calendário **diferem entre tickers**.
+4. **Fonte do `sprint_13_reference`:** ✅ SIM — reusar `SPRINT13_PARAMS` via import (DRY).
+5. **Comissão absoluta nos sweeps:** ✅ SIM — `commission_per_trade=0.0` nas corridas.
+   **Documentar no finding (obrigatório):** "o sweep usa comissão percentual e zera a
+   comissão absoluta de R$ 5/trade do baseline" — senão a comparação com o PF do
+   relatório original fica enganosa.
+6. **Cobertura de `scripts/`:** ✅ confirmada — invocação dedicada
+   `--cov=scripts.cost_sensitivity` (pyproject omite `*/scripts/*`). **Nota:**
+   `cost_sensitivity.py` tem natureza de **biblioteca** apesar de viver em `scripts/`;
+   se surgirem mais módulos assim, reconsiderar a estrutura no futuro (não agora).
+7. **RELATORIO_TECNICO.md (se ^BVSP falhar @0.3%):** ✅ SIM — via híbrida do S18.
 
 ---
 

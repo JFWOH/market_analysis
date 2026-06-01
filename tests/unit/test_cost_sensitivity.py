@@ -27,6 +27,9 @@ if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
 from scripts.cost_sensitivity import (
+    _cell,
+    _load_config,
+    _slice_oos,
     cost_sensitivity_sweep,
     find_breakeven_slippage,
     plot_degradation_curve,
@@ -256,6 +259,49 @@ def test_viz_outputs_created():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Helpers de execução puros (E5) — testáveis sem rede. As funções run_ticker/main
+# (rede/CLI) ficam fora dos unit tests por design; são validadas pela corrida real.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_slice_oos_takes_last_fraction():
+    """_slice_oos pega exatamente os últimos frac das barras, preservando o fim."""
+    idx = pd.date_range("2020-01-01", periods=100, freq="D")
+    df = pd.DataFrame({"Close": np.arange(100.0)}, index=idx)
+    oos = _slice_oos(df, frac=0.30)
+    assert len(oos) == 30
+    assert oos.index[-1] == df.index[-1]        # fim preservado
+    assert oos.iloc[0]["Close"] == 70.0          # começa na barra 70 (int(100*0.7))
+    # default = 0.30
+    assert len(_slice_oos(df)) == 30
+    print("  [OK] test_slice_oos_takes_last_fraction")
+
+
+def test_cell_extracts_value_and_nan_on_miss():
+    """_cell localiza a célula (comm, slip) e devolve NaN se não existir."""
+    df = pd.DataFrame({
+        "comm": [0.001, 0.001, 0.002],
+        "slip": [0.001, 0.003, 0.001],
+        "pf":   [1.4, 1.3, 0.9],
+    })
+    assert _cell(df, "pf", 0.001, 0.001) == 1.4
+    assert _cell(df, "pf", 0.001, 0.003) == 1.3
+    assert np.isnan(_cell(df, "pf", 0.005, 0.005))   # célula ausente → NaN
+    print("  [OK] test_cell_extracts_value_and_nan_on_miss")
+
+
+def test_load_config_sprint13_and_unknown():
+    """_load_config devolve o dict Sprint-13 (cópia) e levanta em config desconhecida."""
+    import pytest
+    cfg = _load_config("sprint_13_reference")
+    assert isinstance(cfg, dict) and cfg.get("use_regime_filter") is True
+    cfg["use_regime_filter"] = False             # é cópia: não muta a fonte
+    assert _load_config("sprint_13_reference")["use_regime_filter"] is True
+    with pytest.raises(KeyError):
+        _load_config("config_inexistente")
+    print("  [OK] test_load_config_sprint13_and_unknown")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Runner standalone
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -269,6 +315,9 @@ _TESTS = [
     test_zero_cost_is_best,
     test_breakeven_converges_under_30_iter,
     test_viz_outputs_created,
+    test_slice_oos_takes_last_fraction,
+    test_cell_extracts_value_and_nan_on_miss,
+    test_load_config_sprint13_and_unknown,
 ]
 
 

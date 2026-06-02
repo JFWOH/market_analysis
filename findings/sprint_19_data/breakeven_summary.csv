@@ -1,0 +1,4 @@
+ticker,oos_start,oos_end,oos_bars,pf_baseline,sharpe_baseline,ret_baseline_pct,trades_baseline,pf_slip_03,breakeven_slip,breakeven_converged,ret_gross_pct,cost_absorbed_pp,passes_slip_03
+^BVSP,2018-07-04,2026-05-29,1963,0.8195,-0.4346,-2.35,115,0.6889,,False,-0.71,1.64,False
+VALE3.SA,2018-05-28,2026-05-29,1989,1.4349,0.1862,0.66,16,1.3444,0.008762,True,0.85,0.18,True
+PETR4.SA,2018-05-28,2026-05-29,1989,0.0,-0.5299,-0.81,3,0.0,,False,-0.76,0.04,False

@@ -316,6 +316,7 @@ Label = sinal da primeira barreira tocada: +1 (TP), -1 (SL), 0 (timeout).
 - Slippage: `0.1%` padrão (configurável)
 - Comissão: `R$ 0.001` por trade
 - Cooldown: 2 bars entre saída e nova entrada (evita overtrading)
+- ⚠️ **Sensibilidade a custos (Sprint 19)**: o modelo de custo fixo acima é otimista. Ver `findings/sprint_19_cost_sensitivity.md` — varredura comissão×slippage em janela OOS (últimos 30%). O motor ganhou o parâmetro opt-in `commission_pct` (comissão percentual, default 0.0, não-quebrante) usado nessa análise.
 
 #### 5.7.2 Métricas computadas
 - **Retorno total** (%), **CAGR**, **Sharpe** (anualizado, 252 bars), **Sortino**, **Calmar** (Ret/MDD)
@@ -389,6 +390,8 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 
 > ⚠️ **MDD nesta seção reflete equity total.** Ver `findings/sprint_18_mdd_dual.md` (Sprint 18) para desambiguação — o MDD sobre capital em risco é materialmente maior (mediana 17,5% vs 0,8%).
 
+> ⚠️ **Robustez a custos (Sprint 19).** Sob varredura comissão×slippage numa janela OOS de **~8 anos (2018-07-04 a 2026-05-29, últimos 30% do histórico completo 2000-2026)** — distinta e muito mais longa que a janela curta por trás das tabelas 7.1/7.2 (`expected_return_analysis.py` usa só os últimos ~730 dias e tira OOS dos últimos 30% disso, ~7 meses) e com modelo de custo diferente (comissão percentual, R$ absoluto zerado) — a config Sprint-13 **não exibe edge no ^BVSP nessa janela longa**: PF 0.82 no baseline (slip/comm 0.1%), 0.69 a slip 0.3%, e 0.92 (ainda <1.0) mesmo a custo zero. Apenas 1 de 3 tickers (VALE3.SA) passa o teste de PF>1.0 a slip 0.3%, com retorno absoluto desprezível. **Isto não é refutação direta da tabela 7.2** (janela e metodologia diferentes) — a reconciliação e a reescrita do posicionamento de robustez ficam deferidas ao Marco do Bloco I (pós-S22). Ver `findings/sprint_19_cost_sensitivity.md`.
+
 ### 7.1 Evolução do Profit Factor OOS no IBOVESPA
 
 | Sprint | Mudança | OOS PF | OOS Sharpe | OOS Win Rate |
@@ -428,7 +431,7 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 **Pontos de atenção:**
 - Sample size em bears históricos é limitado (7 cenários) — embora consistentes, não constituem evidência estatisticamente conclusiva. Recomenda-se ampliar para >20 cenários incluindo bears regionais (Asia 1997, Russia 1998, Argentina 2001, China 2015).
 - Não há análise de drawdown adjusted return (Ulcer Index, Pain Index) — poderia complementar Sharpe/Sortino.
-- Custos de transação modelados como percentual fixo (0.1%) — não capturam spread bid-ask dinâmico ou impacto de mercado para sizes maiores.
+- Custos de transação modelados como percentual fixo (0.1%) — não capturam spread bid-ask dinâmico ou impacto de mercado para sizes maiores. **Sprint 19** quantificou a sensibilidade numa janela OOS longa (2018-2026, últimos 30% do histórico, **distinta da tabela 7.2**): nessa janela o ^BVSP não exibe edge (PF 0.82 baseline, 0.69 a slip 0.3%, 0.92 a custo zero) — ver `findings/sprint_19_cost_sensitivity.md`.
 
 **Sugestões de desenvolvimento:**
 1. Adicionar **regime classifier** mais sofisticado (Hidden Markov Model) para detecção probabilística de bear/bull/range.
@@ -460,6 +463,7 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 3. **Observabilidade**: OpenTelemetry integration (traces, métricas, logs estruturados em JSON)
 4. **Secrets management**: variáveis de ambiente via `.env` + `python-dotenv` (atualmente alguns secrets em código)
 5. **Cache distribuído** (Redis) para `_cache` da API — atualmente in-memory single-instance
+6. **Modelo de custo dinâmico**: integrar impacto de mercado não-linear (spread bid-ask por liquidez, market impact por size) ao backtester — o modelo de custo fixo atual é otimista (ver `findings/sprint_19_cost_sensitivity.md`, Sprint 19).
 6. **Database backend**: PostgreSQL + TimescaleDB para histórico de trades, signals, equity curves — substituir JSON do paper_trader
 7. **Message queue** (RabbitMQ/Celery) para tasks longas: backtest, otimização, walk-forward
 8. **Frontend dedicado**: React/Vue SPA consumindo a REST API substituiria templates Flask

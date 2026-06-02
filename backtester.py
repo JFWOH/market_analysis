@@ -33,6 +33,7 @@ class Backtester:
         commission_per_trade: float | None = None,
         slippage_pct: float | None = None,
         cooldown_bars: int | None = None,
+        commission_pct: float | None = None,
     ) -> None:
         """
         Args:
@@ -43,6 +44,12 @@ class Backtester:
                                   Se None, usa ``config.COMMISSION_PER_TRADE``.
             slippage_pct: Slippage fracionário aplicado ao preço de execução
                           (ex: 0.0005 = 5 bps). Se None, usa ``config.SLIPPAGE_PCT``.
+            commission_pct: Comissão FRACIONÁRIA sobre o nocional, cobrada em cada
+                            perna (entrada e saída), ex: 0.001 = 0.1% por execução.
+                            Distinta de ``commission_per_trade`` (custo fixo em R$).
+                            Default 0.0 (opt-in, Sprint-19); comportamento idêntico
+                            ao anterior quando 0.0. Se None, usa
+                            ``config.COMMISSION_PCT`` (default 0.0).
             cooldown_bars: Número de barras de silêncio após fechar um trade.
                            Sinais gerados dentro desta janela são ignorados.
                            Se None, usa ``config.SIGNAL_COOLDOWN_BARS``.
@@ -59,6 +66,11 @@ class Backtester:
         self.slippage_pct = (
             slippage_pct if slippage_pct is not None
             else getattr(_cfg, "SLIPPAGE_PCT", 0.0)
+        )
+        # Sprint-19: comissão percentual sobre o nocional (opt-in, default 0.0).
+        self.commission_pct = (
+            commission_pct if commission_pct is not None
+            else getattr(_cfg, "COMMISSION_PCT", 0.0)
         )
         self.cooldown_bars = int(
             cooldown_bars if cooldown_bars is not None
@@ -364,8 +376,9 @@ class Backtester:
                         'peak_high':        entry_price,
                         'peak_low':         entry_price,
                     }
-                    # Deduzir capital alocado + comissão de entrada
-                    capital -= pos_amount + self.commission_per_trade
+                    # Deduzir capital alocado + comissão de entrada (fixa + %)
+                    capital -= (pos_amount + self.commission_per_trade
+                                + self.commission_pct * pos_amount)
                     break  # um sinal por período
 
             # Equity tracking
@@ -466,7 +479,9 @@ class Backtester:
             pct = position['entry_price'] / effective_exit - 1.0
 
         gross_pnl = closed_amount * pct
-        pnl       = gross_pnl - self.commission_per_trade   # comissão saída parcial
+        # comissão saída parcial: fixa + % sobre o nocional fechado
+        pnl       = (gross_pnl - self.commission_per_trade
+                     - self.commission_pct * closed_amount)
 
         duration = max(0, exit_bar - position.get('entry_bar', exit_bar))
 
@@ -480,7 +495,8 @@ class Backtester:
             'amount':        closed_amount,
             'pnl':           pnl,
             'gross_pnl':     gross_pnl,
-            'commission':    self.commission_per_trade,      # só saída (entrada compartilhada)
+            'commission':    (self.commission_per_trade
+                              + self.commission_pct * closed_amount),  # só saída
             'pct_change':    pct,
             'reason':        'Partial Exit',
             'pattern':       position['pattern'],
@@ -516,7 +532,9 @@ class Backtester:
             pct = position['entry_price'] / effective_exit - 1.0
 
         gross_pnl = position['amount'] * pct
-        pnl       = gross_pnl - self.commission_per_trade  # comissão de saída
+        # comissão de saída: fixa + % sobre o nocional (entrada já descontada na abertura)
+        pnl       = (gross_pnl - self.commission_per_trade
+                     - self.commission_pct * position['amount'])
         position['_pnl'] = pnl
 
         duration = max(0, exit_bar - position.get('entry_bar', exit_bar))
@@ -531,7 +549,8 @@ class Backtester:
             'amount':        position['amount'],
             'pnl':           pnl,
             'gross_pnl':     gross_pnl,
-            'commission':    2.0 * self.commission_per_trade,  # entrada + saída
+            'commission':    (2.0 * self.commission_per_trade
+                              + 2.0 * self.commission_pct * position['amount']),  # entrada+saída
             'pct_change':    pct,
             'reason':        reason,
             'pattern':       position['pattern'],

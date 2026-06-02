@@ -545,6 +545,54 @@ def test_time_in_market_pct_matches_curve():
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Sprint-19: comissão percentual (commission_pct) — testes NOVOS, aditivos
+# ──────────────────────────────────────────────────────────────────────────────
+
+def test_commission_pct_default_zero_unchanged():
+    """commission_pct é opt-in (default 0.0): omitir o parâmetro deve dar
+    resultado idêntico a passá-lo como 0.0 (comportamento legado intacto)."""
+    prices = [100_000, 101_000, 102_000, 103_000, 105_000, 104_000]
+    df  = _make_price_series(prices)
+    sig = _signal(df, bar=2, tipo="Compra", stop_offset=3_000, target_offset=3_000)
+    sig["preco_alvo"] = 105_000.0
+
+    bt_default = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                            commission_per_trade=0.0, slippage_pct=0.0)
+    bt_zero    = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                            commission_per_trade=0.0, slippage_pct=0.0,
+                            commission_pct=0.0)
+    m_default = bt_default.run()
+    m_zero    = bt_zero.run()
+
+    assert abs(m_default["final_capital"] - m_zero["final_capital"]) < 1e-9
+    assert bt_default.trades[0]["pnl"] == bt_zero.trades[0]["pnl"]
+    print("  [OK] test_commission_pct_default_zero_unchanged")
+
+
+def test_commission_pct_reduces_pnl():
+    """commission_pct > 0 reduz o capital final; o custo de um round-trip é
+    ~ 2 × commission_pct × nocional (uma perna na entrada, outra na saída)."""
+    prices = [100_000, 101_000, 102_000, 103_000, 105_000, 104_000]
+    df  = _make_price_series(prices)
+    sig = _signal(df, bar=2, tipo="Compra", stop_offset=3_000, target_offset=3_000)
+    sig["preco_alvo"] = 105_000.0
+
+    bt0 = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                     commission_per_trade=0.0, slippage_pct=0.0, commission_pct=0.0)
+    bt1 = Backtester(MockStrategy(df, [sig]), initial_capital=100_000.0,
+                     commission_per_trade=0.0, slippage_pct=0.0, commission_pct=0.001)
+    m0 = bt0.run()
+    m1 = bt1.run()
+
+    assert m1["final_capital"] < m0["final_capital"], "commission_pct não reduziu o capital"
+    amount = bt0.trades[0]["amount"]
+    expected = 2.0 * 0.001 * amount  # entrada + saída sobre o mesmo nocional
+    diff = m0["final_capital"] - m1["final_capital"]
+    assert abs(diff - expected) < 0.5, f"custo esperado ~{expected:.2f}, obteve {diff:.2f}"
+    print(f"  [OK] test_commission_pct_reduces_pnl  (custo={diff:.2f})")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Runner
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -574,6 +622,9 @@ _TESTS = [
     test_dual_mdd_fields_present_and_typed,
     test_max_drawdown_matches_total_equity_base,
     test_time_in_market_pct_matches_curve,
+    # Sprint-19: comissão percentual (novos)
+    test_commission_pct_default_zero_unchanged,
+    test_commission_pct_reduces_pnl,
 ]
 
 

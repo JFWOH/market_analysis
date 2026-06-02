@@ -296,6 +296,250 @@ def plot_qq(resid: np.ndarray, out_path: str, title: str = "") -> str:
     return out_path
 
 
-# CLI (E4) — implementada no Checkpoint 3.
+# ──────────────────────────────────────────────────────────────────────────────
+# E4 — Execução real (CLI). Dados reais (gate S18), split IS/OOS 70/30. Importa
+# rede/motor tarde para manter o núcleo-biblioteca acima livre de side-effects. Toda
+# esta camada é ``# pragma: no cover`` (orquestração/rede), validada pela corrida real
+# do CP3 — coerente com ``cost_sensitivity.run_ticker`` (S19).
+# ──────────────────────────────────────────────────────────────────────────────
+
+TICKER = "^BVSP"                    # ticker principal do sistema (spec §3/E4)
+TICKER_SLUG = "bvsp"
+HISTORY_START = "2000-01-01"        # histórico longo (auto-aquecimento dos indicadores)
+IS_FRACTION = 0.70                  # split 70/30: IS = primeiros 70% das barras
+CONFIG_FILE_LABEL = "sprint_13"     # rótulo nos nomes de PNG (casa com S19)
+BASELINE_COMM = 0.001               # 0.1% — comissão (CLAUDE.md §6.6)
+BASELINE_SLIP = 0.001               # 0.1% — slippage do baseline
+
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+OUTPUT_DIR = os.path.join(_REPO_ROOT, "findings", "sprint_20_data")
+
+
+def _load_config(config_name: str) -> dict:   # pragma: no cover
+    """Carrega o dict de params da config (DRY com bear_market_validation/cost_sensitivity).
+
+    Único registro é ``sprint_13_reference`` → ``SPRINT13_PARAMS``. Registry YAML fica p/ S21+.
+    """
+    try:
+        from scripts.bear_market_validation import SPRINT13_PARAMS
+    except ImportError:  # execução direta (sys.path já tem a raiz)
+        from bear_market_validation import SPRINT13_PARAMS
+    registry = {"sprint_13_reference": SPRINT13_PARAMS}
+    if config_name not in registry:
+        raise KeyError(
+            f"config desconhecida: {config_name!r}. Disponíveis: {list(registry)}")
+    return dict(registry[config_name])
+
+
+def build_system_returns(   # pragma: no cover — roda o motor; validado pela corrida real
+    data: pd.DataFrame,
+    config: dict,
+    initial_capital: float = 100_000.0,
+) -> pd.Series:
+    """Roda o sistema COMPLETO (Sprint-13) e devolve a série de retornos DIÁRIOS.
+
+    Reusa o padrão canônico de ``bear_market_validation`` (CombinedStrategy → set_data →
+    params.update → Backtester). ``system_returns`` = ``pct_change`` da curva de equity
+    (R$ 0 de retorno nas barras flat). Custos: comissão/slippage 0.1% (CLAUDE.md §6.6).
+    """
+    from backtester import Backtester
+    from strategy import CombinedStrategy
+
+    strat = CombinedStrategy(TICKER)
+    strat.set_data(data.copy())
+    strat.params.update(dict(config))
+    bt = Backtester(
+        strat, initial_capital=initial_capital,
+        commission_per_trade=BASELINE_COMM, slippage_pct=BASELINE_SLIP, cooldown_bars=2)
+    bt.run()
+    eq = pd.Series(bt.equity, index=pd.to_datetime(bt.equity_dates))
+    eq = eq[~eq.index.duplicated(keep="first")]
+    return eq.pct_change().dropna().rename("system")
+
+
+def _sharpe_annualized(returns: pd.Series) -> float:   # pragma: no cover
+    """Sharpe anualizado simples (rf=0) da série de retornos diários."""
+    sd = float(np.std(returns, ddof=1))
+    if sd == 0.0 or not np.isfinite(sd):
+        return float("nan")
+    return float(np.mean(returns) / sd * np.sqrt(ANNUALIZATION))
+
+
+def _emit_model_viz(   # pragma: no cover — geração de PNGs (gitignored)
+    y: pd.Series, X: pd.DataFrame, scatter_col: str,
+    out_dir: str, prefix: str, title: str,
+) -> None:
+    """Scatter (system vs fator primário) + resíduos + Q-Q de UM modelo (3 PNGs)."""
+    Xc = sm.add_constant(X, has_constant="add")
+    res = sm.OLS(np.asarray(y, float), np.asarray(Xc, float)).fit()
+    plot_regression_scatter(
+        X[scatter_col], y, os.path.join(out_dir, f"{prefix}.png"),
+        title=title, xlabel=f"Retorno do fator ({scatter_col})")
+    plot_residuals(res.fittedvalues, res.resid, os.path.join(out_dir, f"{prefix}_residual.png"),
+                   title=f"Resíduos — {title}")
+    plot_qq(res.resid, os.path.join(out_dir, f"{prefix}_qq.png"), title=f"Q-Q — {title}")
+
+
+_SUMMARY_COLUMNS = [
+    "segment", "model", "segment_start", "segment_end", "n_obs",
+    "alpha_annualized_pct", "beta_primary", "r_squared", "alpha_pvalue",
+    "significant_alpha", "beta_momentum", "beta_momentum_pvalue",
+    "vif_market", "vif_momentum", "minimal_total_return_pct", "minimal_n_active_bars",
+]
+
+
+def _summary_row(seg: str, model_label: str, res: dict) -> dict:   # pragma: no cover
+    """Linha consolidada (formato longo) para o decomposition_summary.csv."""
+    return {
+        "segment": seg.upper(),
+        "model": model_label,
+        "segment_start": res["segment_start"],
+        "segment_end": res["segment_end"],
+        "n_obs": res["n_obs"],
+        "alpha_annualized_pct": res["alpha_annualized"],
+        "beta_primary": res["beta"],
+        "r_squared": res["r_squared"],
+        "alpha_pvalue": res["alpha_pvalue"],
+        "significant_alpha": res["significant_alpha"],
+        "beta_momentum": res.get("beta_momentum", float("nan")),
+        "beta_momentum_pvalue": res.get("beta_momentum_pvalue", float("nan")),
+        "vif_market": res.get("vif_market", float("nan")),
+        "vif_momentum": res.get("vif_momentum", float("nan")),
+        "minimal_total_return_pct": res.get("minimal_total_return", float("nan")),
+        "minimal_n_active_bars": res.get("minimal_n_active_bars", float("nan")),
+    }
+
+
+def run_decomposition(   # pragma: no cover — orquestração/rede; validada pela corrida real
+    config_name: str = "sprint_13_reference",
+    output_dir: str = OUTPUT_DIR,
+    history_start: str = HISTORY_START,
+    history_end: str | None = None,
+) -> dict:
+    """Baixa ^BVSP (gate S18), roda o sistema continuamente, particiona IS/OOS (70/30)
+    e ajusta os 3 modelos em cada segmento.
+
+    Disciplina do S18: ABORTA se a fonte for sintética — nunca fabricar números.
+
+    Saídas: 6 JSONs (3 modelos × {IS, OOS}), ``decomposition_summary.csv`` e 18 PNGs
+    (gitignored). Returns dict com as linhas de resumo + Sharpe bruto por segmento.
+    """
+    import json
+
+    from scripts.fetch_real_data import download  # lazy: rede só no caminho de execução
+
+    if history_end is None:
+        history_end = pd.Timestamp.today().strftime("%Y-%m-%d")
+
+    df, source = download(TICKER, history_start, history_end, interval="1d")
+    if source == "synthetic":
+        raise RuntimeError(
+            f"{TICKER}: download retornou dados SINTÉTICOS (yfinance indisponível). "
+            f"Abortado — disciplina do Sprint 18: não fabricar números.")
+
+    config = _load_config(config_name)
+    os.makedirs(output_dir, exist_ok=True)
+
+    # O sistema roda CONTINUAMENTE sobre todo o histórico; particionamos o FLUXO de
+    # retornos em IS (primeiros 70%) / OOS (últimos 30%). Os fatores (mercado, momentum,
+    # sistema mínimo) são calculados no histórico completo e ALINHADOS a cada segmento —
+    # momentum é público e backward-looking; não se "reinicia" num corte arbitrário.
+    system_returns = build_system_returns(df, config)
+    market_returns = df["Close"].pct_change().dropna().rename("market")
+    market_prices = df["Close"].rename("price")
+
+    split_date = df.index[int(len(df) * IS_FRACTION)]
+    segments = {
+        "is": system_returns[system_returns.index < split_date],
+        "oos": system_returns[system_returns.index >= split_date],
+    }
+
+    summary_rows = []
+    sharpe_by_seg = {}
+    for seg, sys_ret in segments.items():
+        seg_start, seg_end = str(sys_ret.index[0].date()), str(sys_ret.index[-1].date())
+        sharpe_by_seg[seg] = round(_sharpe_annualized(sys_ret), 4)
+
+        m1 = fit_capm_local(sys_ret, market_returns)
+        m2 = fit_capm_plus_momentum(sys_ret, market_returns, market_prices)
+        m3 = fit_vs_minimal_system(sys_ret, df)
+
+        models = [("1-CAPM", "model1_capm", m1),
+                  ("2-Momentum", "model2_momentum", m2),
+                  ("3-Minimal", "model3_minimal", m3)]
+        for label, tag, res in models:
+            res_out = dict(res)
+            res_out.update({"ticker": TICKER, "segment": seg.upper(),
+                            "segment_start": seg_start, "segment_end": seg_end})
+            json_path = os.path.join(output_dir, f"{tag}_{TICKER_SLUG}_{seg}.json")
+            with open(json_path, "w", encoding="utf-8") as fh:
+                json.dump(res_out, fh, indent=2, ensure_ascii=False)
+            summary_rows.append(_summary_row(seg, label, res_out))
+
+        # Visualizações (PNGs gitignored): designs alinhados de cada modelo.
+        a1 = _align(system=sys_ret, market=market_returns)
+        _emit_model_viz(a1["system"], a1[["market"]], "market", output_dir,
+                        f"model1_{CONFIG_FILE_LABEL}_{TICKER_SLUG}_{seg}",
+                        f"M1 CAPM — {TICKER} {seg.upper()} ({seg_start}→{seg_end})")
+        mom = _momentum_factor(market_prices, 252, 21)
+        a2 = _align(system=sys_ret, market=market_returns, mom=mom)
+        _emit_model_viz(a2["system"], a2[["market", "mom"]], "market", output_dir,
+                        f"model2_{CONFIG_FILE_LABEL}_{TICKER_SLUG}_{seg}",
+                        f"M2 +Momentum — {TICKER} {seg.upper()} ({seg_start}→{seg_end})")
+        minimal, _ = build_minimal_system_returns(df)
+        a3 = _align(system=sys_ret, minimal=minimal)
+        _emit_model_viz(a3["system"], a3[["minimal"]], "minimal", output_dir,
+                        f"model3_{CONFIG_FILE_LABEL}_{TICKER_SLUG}_{seg}",
+                        f"M3 vs Mínimo — {TICKER} {seg.upper()} ({seg_start}→{seg_end})")
+
+    summary_path = os.path.join(output_dir, "decomposition_summary.csv")
+    pd.DataFrame(summary_rows, columns=_SUMMARY_COLUMNS).to_csv(summary_path, index=False)
+
+    return {"rows": summary_rows, "sharpe_by_segment": sharpe_by_seg,
+            "split_date": str(split_date.date()), "n_total_bars": int(len(df)),
+            "summary_path": summary_path}
+
+
+def main(argv: list[str] | None = None) -> int:   # pragma: no cover — CLI/rede
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Sprint 20 — decomposição fatorial do alpha (3 modelos OLS/HAC, IS+OOS).")
+    parser.add_argument("--ticker", default=TICKER,
+                        help=f"ticker (default: {TICKER}; só ^BVSP é oficial neste sprint)")
+    parser.add_argument("--config", default="sprint_13_reference",
+                        help="config de params (default: sprint_13_reference)")
+    args = parser.parse_args(argv)
+
+    if args.ticker != TICKER:
+        print(f"  [nota] --ticker {args.ticker} ignorado: este sprint roda o oficial {TICKER}.")
+
+    print("=" * 96)
+    print(" Sprint 20 — Decomposição fatorial do alpha (CAPM / +Momentum / vs Mínimo)")
+    print(" Split IS/OOS = 70/30 sobre o fluxo de retornos do sistema completo")
+    print("=" * 96)
+    try:
+        out = run_decomposition(config_name=args.config)
+    except RuntimeError as e:
+        print(f"  [ABORT] {e}")
+        return 1
+
+    print(f"\n  Histórico: {out['n_total_bars']} barras | split em {out['split_date']} "
+          f"(IS<split | OOS>=split)")
+    print(f"  Sharpe bruto do sistema: IS={out['sharpe_by_segment']['is']} | "
+          f"OOS={out['sharpe_by_segment']['oos']}")
+    print("\n  " + "-" * 92)
+    print(f"  {'SEG':<4} {'MODELO':<12} {'alpha_ann%':>11} {'beta':>8} {'R²':>7} "
+          f"{'p(alpha)':>10} {'sig?':>5}")
+    print("  " + "-" * 92)
+    for r in out["rows"]:
+        print(f"  {r['segment']:<4} {r['model']:<12} {r['alpha_annualized_pct']:>11.4f} "
+              f"{r['beta_primary']:>8.4f} {r['r_squared']:>7.4f} "
+              f"{r['alpha_pvalue']:>10.4g} {('SIM' if r['significant_alpha'] else 'não'):>5}")
+    print("  " + "-" * 92)
+    print(f"\n  Resumo: {out['summary_path']}")
+    return 0
+
+
 if __name__ == "__main__":   # pragma: no cover
-    print("CLI de execução (E4) será implementada no Checkpoint 3 do Sprint 20.")
+    sys.exit(main())

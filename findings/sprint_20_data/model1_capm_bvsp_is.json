@@ -1,0 +1,16 @@
+{
+  "model": "capm_local",
+  "alpha_annualized": -0.141088,
+  "beta": -0.00071,
+  "r_squared": 0.000781,
+  "alpha_pvalue": 0.400771,
+  "beta_pvalue": 0.442839,
+  "residual_std": 0.00045238,
+  "n_obs": 4579,
+  "hac_maxlags": 9,
+  "significant_alpha": false,
+  "ticker": "^BVSP",
+  "segment": "IS",
+  "segment_start": "2000-01-04",
+  "segment_end": "2018-07-04"
+}

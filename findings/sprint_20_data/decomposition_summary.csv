@@ -1,0 +1,7 @@
+segment,model,segment_start,segment_end,n_obs,alpha_annualized_pct,beta_primary,r_squared,alpha_pvalue,significant_alpha,beta_momentum,beta_momentum_pvalue,vif_market,vif_momentum,minimal_total_return_pct,minimal_n_active_bars
+IS,1-CAPM,2000-01-04,2018-07-04,4579,-0.141088,-0.00071,0.000781,0.400771,False,,,,,,
+IS,2-Momentum,2000-01-04,2018-07-04,4328,-0.203367,-0.000335,0.000692,0.277943,False,3.5e-05,0.101154,1.0,1.0,,
+IS,3-Minimal,2000-01-04,2018-07-04,4579,-0.13987,-0.001104,0.000904,0.404575,False,,,,,321.492179,2672.0
+OOS,1-CAPM,2018-07-05,2026-06-01,1963,-0.042027,0.001261,0.001713,0.863235,False,,,,,,
+OOS,2-Momentum,2018-07-05,2026-06-01,1963,-0.202768,0.001282,0.002251,0.491898,False,6.4e-05,0.256721,1.0009,1.0009,,
+OOS,3-Minimal,2018-07-05,2026-06-01,1963,-0.031122,0.001631,0.00171,0.897955,False,,,,,321.492179,2672.0

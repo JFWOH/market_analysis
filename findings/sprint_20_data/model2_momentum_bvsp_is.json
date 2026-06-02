@@ -1,0 +1,20 @@
+{
+  "model": "capm_plus_momentum",
+  "alpha_annualized": -0.203367,
+  "beta": -0.000335,
+  "r_squared": 0.000692,
+  "alpha_pvalue": 0.277943,
+  "beta_pvalue": 0.73525,
+  "residual_std": 0.00045641,
+  "n_obs": 4328,
+  "hac_maxlags": 9,
+  "significant_alpha": false,
+  "beta_momentum": 3.5e-05,
+  "beta_momentum_pvalue": 0.101154,
+  "vif_market": 1.0,
+  "vif_momentum": 1.0,
+  "ticker": "^BVSP",
+  "segment": "IS",
+  "segment_start": "2000-01-04",
+  "segment_end": "2018-07-04"
+}

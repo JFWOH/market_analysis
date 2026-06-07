@@ -262,6 +262,8 @@ Três geradores independentes combinados via união + deduplicação:
 
 Cada sinal carrega: `data`, `tipo` (Compra/Venda), `preco`, `stop_loss`, `preco_alvo`, `estrategia`, `forca`, opcionalmente `size_mult` (Sprint-12).
 
+> **Nota (Sprint 20):** a decomposição fatorial não detectou alpha significativo do conjunto ensemble+macro-lock+partial+chandelier sobre o filtro de regime puro (Hurst+ADX) em ^BVSP 2000-2026 (Modelo 3: α não-significativo em IS e OOS) — ver `findings/sprint_20_factor_decomp.md`.
+
 ### 5.4 Position Sizing
 
 Aplicado em cascata sobre o tamanho base (= `risk_per_trade × capital / risk_per_share`):
@@ -308,6 +310,8 @@ Label = sinal da primeira barreira tocada: +1 (TP), -1 (SL), 0 (timeout).
 - `RandomForestClassifier(n_estimators=100, max_depth=5)`
 - ROC-AUC mínimo 0.55 para considerar treinado
 - Em produção: `predict_proba(features) >= meta_min_prob` filtra sinais
+
+> **Nota (Sprint 20):** a decomposição fatorial do S20 rodou o escopo `SPRINT13_PARAMS`, **sem** meta-labeler. A contribuição do meta-labeler **não foi medida** ali e permanece pergunta aberta para o Marco do Bloco I (não-medido ≠ testado-e-falhou) — ver `findings/sprint_20_factor_decomp.md` (§Pergunta aberta).
 
 ### 5.7 Backtesting e Validação
 
@@ -432,11 +436,12 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 - Sample size em bears históricos é limitado (7 cenários) — embora consistentes, não constituem evidência estatisticamente conclusiva. Recomenda-se ampliar para >20 cenários incluindo bears regionais (Asia 1997, Russia 1998, Argentina 2001, China 2015).
 - Não há análise de drawdown adjusted return (Ulcer Index, Pain Index) — poderia complementar Sharpe/Sortino.
 - Custos de transação modelados como percentual fixo (0.1%) — não capturam spread bid-ask dinâmico ou impacto de mercado para sizes maiores. **Sprint 19** quantificou a sensibilidade numa janela OOS longa (2018-2026, últimos 30% do histórico, **distinta da tabela 7.2**): nessa janela o ^BVSP não exibe edge (PF 0.82 baseline, 0.69 a slip 0.3%, 0.92 a custo zero) — ver `findings/sprint_19_cost_sensitivity.md`.
+- Exposição a fator e alpha: **Sprint 20** decompôs os retornos do sistema (CAPM, +momentum, vs sistema mínimo) em ^BVSP 2000-2026 (split IS/OOS 70/30): **nenhum alpha significativo** em qualquer modelo/segmento e **β≈0 contra todos os fatores** — o sistema fica flat ~72% das barras e tem retorno líquido levemente negativo. Ver `findings/sprint_20_factor_decomp.md`.
 
 **Sugestões de desenvolvimento:**
 1. Adicionar **regime classifier** mais sofisticado (Hidden Markov Model) para detecção probabilística de bear/bull/range.
 2. Implementar **risk parity** entre tickers na carteira agregada (Sprint-15 usa equal-weight; risk parity poderia melhorar Sharpe agregado).
-3. Avaliar **factor exposure** (Fama-French 5-factor + momentum) para entender o que o sistema está "comprando" implicitamente.
+3. ~~Avaliar **factor exposure** (Fama-French 5-factor + momentum) para entender o que o sistema está "comprando" implicitamente.~~ → **Implementado no Sprint 20** (`scripts/factor_decomposition.py`: CAPM + momentum + sistema mínimo, com HAC e VIF). Resultado: sem exposição líquida significativa e sem alpha — ver `findings/sprint_20_factor_decomp.md`.
 4. Integrar **macro features**: yield curve, VIX, US 10Y, spread BR-US — provavelmente melhora previsibilidade em transições de regime.
 
 ### 8.2 Equipe de TI / DevOps

@@ -1,0 +1,20 @@
+{
+  "model": "capm_plus_momentum",
+  "alpha_annualized": -0.202768,
+  "beta": 0.001282,
+  "r_squared": 0.002251,
+  "alpha_pvalue": 0.491898,
+  "beta_pvalue": 0.59347,
+  "residual_std": 0.00044783,
+  "n_obs": 1963,
+  "hac_maxlags": 7,
+  "significant_alpha": false,
+  "beta_momentum": 6.4e-05,
+  "beta_momentum_pvalue": 0.256721,
+  "vif_market": 1.0009,
+  "vif_momentum": 1.0009,
+  "ticker": "^BVSP",
+  "segment": "OOS",
+  "segment_start": "2018-07-05",
+  "segment_end": "2026-06-01"
+}

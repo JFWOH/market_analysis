@@ -1,0 +1,20 @@
+{
+  "model": "vs_minimal_system",
+  "alpha_annualized": -0.031122,
+  "beta": 0.001631,
+  "r_squared": 0.00171,
+  "alpha_pvalue": 0.897955,
+  "beta_pvalue": 0.685102,
+  "residual_std": 0.00044795,
+  "n_obs": 1963,
+  "hac_maxlags": 7,
+  "significant_alpha": false,
+  "minimal_total_return": 321.492179,
+  "minimal_n_active_bars": 2672,
+  "hurst_min": 0.55,
+  "adx_min": 25.0,
+  "ticker": "^BVSP",
+  "segment": "OOS",
+  "segment_start": "2018-07-05",
+  "segment_end": "2026-06-01"
+}

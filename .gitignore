@@ -52,6 +52,9 @@ findings/sprint_18_data/*.png
 # Sprint 19: heatmaps/curvas de degradação são regeneráveis (python scripts/cost_sensitivity.py
 # --all-tickers); a evidência versionada são os CSVs (sweep_*.csv, breakeven_summary.csv).
 findings/sprint_19_data/*.png
+# Sprint 20: scatter/residual/Q-Q são regeneráveis (python scripts/factor_decomposition.py
+# --ticker ^BVSP); a evidência versionada são os JSONs + decomposition_summary.csv.
+findings/sprint_20_data/*.png
 graficos/
 data_cache/
 *.parquet

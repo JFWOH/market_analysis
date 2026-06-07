@@ -532,6 +532,9 @@ def run_ticker(   # pragma: no cover — execução real (rede); validada no CP4
 
 def main(argv: list[str] | None = None) -> int:   # pragma: no cover — CLI/rede
     import argparse
+    import contextlib
+    with contextlib.suppress(Exception):   # console Windows cp1252; UTF-8 evita UnicodeEncodeError
+        sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(
         description="Sprint 21 — walk-forward honesto (re-otimização por fold).")
     parser.add_argument("--ticker", default="^BVSP")

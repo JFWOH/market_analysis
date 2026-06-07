@@ -286,20 +286,25 @@ intactas; reescrita profunda → Marco do Bloco I. Pergunta aberta do meta-label
 
 ---
 
-## DÚVIDAS REMANESCENTES (precisam de decisão sua)
+## DECISÕES APROVADAS (Jeferson, CP1 → CP2) ✅
 
-1. **param_space:** aprova os **6 params** propostos (3⁶=729, Optuna default) ou prefere a variante
-   **5 params** (243)? Algum valor de range a ajustar?
-2. **`metric_to_optimize` default:** `sharpe_dsr` (deflado, recomendado — penaliza data dredging na
-   própria seleção) confirmado? Ou `sharpe` cru como primário e DSR só reportado?
-3. **Base do "full system":** confirmo `SPRINT13_PARAMS` base **sem meta-labeler/Fibonacci**
-   (continuidade S19/S20)? O meta-labeler encareceria muito (treino RF por trial × fold).
-4. **RELATORIO_TECNICO (E7):** a spec §3/E7 manda **"substituir o Sharpe reportado"**. Isso colide
-   com a disciplina S19/S20 (tabelas históricas intactas, reescrita ao Marco). Proponho: **cross-ref
-   híbrido** (nota + Sharpe OOS honesto ao lado, tabela 3.1 intacta) e **substituição real só no
-   Marco**. Confirma a via híbrida, ou quer a substituição direta agora?
-5. **`^GSPC`/`VALE3` no gate S18:** se algum vier `synthetic` (yfinance instável), **aborto aquele
-   ticker** e reporto (não fabrico), como S19/S20. OK?
+1. **param_space: 6 params (3⁶=729), Optuna default.** ✅ Os seis (regime: `adx_threshold`,
+   `hurst_threshold`, `macro_direction_ret_min`; saída: `atr_stop_multiplier`, `atr_target_multiplier`,
+   `chandelier_atr_mult`). Optuna corta o espaço; 10-20 min aceitável.
+2. **`metric_to_optimize = sharpe_dsr` (deflado).** ✅ Otimizar pelo Sharpe cru re-introduziria o
+   overfitting que o sprint mede; o DSR é a métrica honesta.
+3. **Base `SPRINT13_PARAMS` SEM meta-labeler/Fibonacci.** ✅ Continuidade S19/S20. **Repetir a
+   disclosure de escopo no finding** (como o S20).
+4. **RELATORIO_TECNICO (E7): VIA HÍBRIDA.** ✅ **NÃO** substituir o `1.72` direto (quebraria a
+   disciplina S18-S20). Números originais **intactos** como registro histórico; **nota de remissão +
+   Sharpe OOS honesto AO LADO** do 1.72; **diff mostrado e aprovado ANTES** de aplicar; reescrita
+   profunda → Marco do Bloco I.
+5. **Gate S18: aborta o ticker se vier sintético** (não fabrica). ✅ Registrar no finding se algum
+   ticker foi abortado por falta de dado real.
+
+**Estrutura: 4 checkpoints aprovada.** ✅ Atenção redobrada aos testes E4 **#1 (AR(1) → degradação≈0)**
+e **#2 (aleatório → alta degradação)** — rede de segurança metodológica. Se tocar perto de
+`optimizer.py`, confirmar zero regressão em `tests/.../test_optimizer.py`.
 
 ---
 

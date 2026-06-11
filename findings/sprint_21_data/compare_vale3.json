@@ -1,0 +1,220 @@
+{
+  "ticker": "VALE3.SA",
+  "history_start": "2010-01-01",
+  "history_end": "2026-06-10",
+  "n_bars": 4081,
+  "n_folds": 14,
+  "n_trials": 50,
+  "cover_start": "2010-01-04",
+  "cover_end": "2026-04-27",
+  "best_global": {
+    "adx_threshold": 30.0,
+    "hurst_threshold": 0.6,
+    "macro_direction_ret_min": 0.05,
+    "atr_stop_multiplier": 2.0,
+    "atr_target_multiplier": 2.0,
+    "chandelier_atr_mult": 3.0
+  },
+  "honest": {
+    "is_sharpe_mean": -0.28921,
+    "oos_sharpe_mean": -1.647878,
+    "is_pf_mean": 0.226519,
+    "oos_pf_mean": 0.283603,
+    "degradation_pct": 469.7866,
+    "param_stability_score": 0.25,
+    "skipped_folds": [
+      0,
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7,
+      8,
+      9,
+      10
+    ],
+    "n_folds": 3,
+    "folds": [
+      {
+        "fold_id": 11,
+        "is_start": "2010-01-04",
+        "is_end": "2023-03-15",
+        "oos_start": "2023-04-14",
+        "oos_end": "2024-04-18",
+        "best_params": {
+          "adx_threshold": 25.0,
+          "hurst_threshold": 0.55,
+          "macro_direction_ret_min": 0.12,
+          "atr_stop_multiplier": 1.0,
+          "atr_target_multiplier": 4.0,
+          "chandelier_atr_mult": 3.0
+        },
+        "is_metrics": {
+          "sharpe_ratio": -0.486715,
+          "profit_factor": 0.0,
+          "return_pct": -0.011387,
+          "trade_count": 3,
+          "max_drawdown": 1.138731,
+          "win_rate": 0.0,
+          "n_return_obs": 3275.0
+        },
+        "oos_metrics": {
+          "sharpe_ratio": -1.67553,
+          "profit_factor": 0.102062,
+          "return_pct": -0.016257,
+          "trade_count": 5,
+          "max_drawdown": 1.809155,
+          "win_rate": 0.2,
+          "n_return_obs": 251.0
+        },
+        "top_k_params": [
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 3.0
+          },
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 2.0
+          },
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 4.0
+          }
+        ]
+      },
+      {
+        "fold_id": 12,
+        "is_start": "2010-01-04",
+        "is_end": "2024-03-20",
+        "oos_start": "2024-04-19",
+        "oos_end": "2025-04-23",
+        "best_params": {
+          "adx_threshold": 25.0,
+          "hurst_threshold": 0.55,
+          "macro_direction_ret_min": 0.08,
+          "atr_stop_multiplier": 1.0,
+          "atr_target_multiplier": 2.0,
+          "chandelier_atr_mult": 4.0
+        },
+        "is_metrics": {
+          "sharpe_ratio": -0.17915,
+          "profit_factor": 0.394367,
+          "return_pct": -0.004936,
+          "trade_count": 3,
+          "max_drawdown": 0.818514,
+          "win_rate": 0.333333,
+          "n_return_obs": 3527.0
+        },
+        "oos_metrics": {
+          "sharpe_ratio": -2.788096,
+          "profit_factor": 0.0,
+          "return_pct": -0.044922,
+          "trade_count": 8,
+          "max_drawdown": 4.492176,
+          "win_rate": 0.0,
+          "n_return_obs": 251.0
+        },
+        "top_k_params": [
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.08,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 2.0,
+            "chandelier_atr_mult": 4.0
+          },
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 3.0
+          },
+          {
+            "adx_threshold": 25.0,
+            "hurst_threshold": 0.55,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.0,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 2.0
+          }
+        ]
+      },
+      {
+        "fold_id": 13,
+        "is_start": "2010-01-04",
+        "is_end": "2025-03-24",
+        "oos_start": "2025-04-24",
+        "oos_end": "2026-04-27",
+        "best_params": {
+          "adx_threshold": 20.0,
+          "hurst_threshold": 0.5,
+          "macro_direction_ret_min": 0.12,
+          "atr_stop_multiplier": 1.5,
+          "atr_target_multiplier": 4.0,
+          "chandelier_atr_mult": 3.0
+        },
+        "is_metrics": {
+          "sharpe_ratio": -0.201765,
+          "profit_factor": 0.285191,
+          "return_pct": -0.005699,
+          "trade_count": 3,
+          "max_drawdown": 1.069201,
+          "win_rate": 0.333333,
+          "n_return_obs": 3779.0
+        },
+        "oos_metrics": {
+          "sharpe_ratio": -0.480008,
+          "profit_factor": 0.748746,
+          "return_pct": -0.008187,
+          "trade_count": 18,
+          "max_drawdown": 3.368484,
+          "win_rate": 0.666667,
+          "n_return_obs": 251.0
+        },
+        "top_k_params": [
+          {
+            "adx_threshold": 20.0,
+            "hurst_threshold": 0.5,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.5,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 3.0
+          },
+          {
+            "adx_threshold": 20.0,
+            "hurst_threshold": 0.5,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.5,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 2.0
+          },
+          {
+            "adx_threshold": 20.0,
+            "hurst_threshold": 0.6,
+            "macro_direction_ret_min": 0.12,
+            "atr_stop_multiplier": 1.5,
+            "atr_target_multiplier": 4.0,
+            "chandelier_atr_mult": 4.0
+          }
+        ]
+      }
+    ]
+  },
+  "fixed": null
+}

@@ -284,6 +284,40 @@ def test_to_dataframe_and_dict_smoke():
     print("  [OK] test_to_dataframe_and_dict_smoke")
 
 
+def test_skip_invalid_folds_registers_and_continues():
+    """skip_invalid_folds=True: folds sem combo válido são registrados e pulados;
+    default False preserva o ValueError; todos pulados → ValueError."""
+    data = _idx_df(200)
+    space = {"adx_threshold": [20.0, 25.0]}
+
+    def eval_first_window_dead(d, params, ticker, base, cap):
+        # Janela IS do fold 0 (anchored, is_window=40) termina na barra 40 → sem trades.
+        if len(d) <= 40:
+            return _fake_metrics(1.0, trades=0)
+        return _fake_metrics(1.5)
+
+    # Default (False): aborta no fold 0.
+    with pytest.raises(ValueError):
+        walk_forward_with_reopt(data, space, n_folds=3, optimizer="grid",
+                                metric_to_optimize="sharpe",
+                                evaluator=eval_first_window_dead, **_SMALL_WIN)
+    # Opt-in (True): fold 0 registrado em skipped_folds; demais avaliados.
+    res = walk_forward_with_reopt(data, space, n_folds=3, optimizer="grid",
+                                  metric_to_optimize="sharpe",
+                                  evaluator=eval_first_window_dead,
+                                  skip_invalid_folds=True, **_SMALL_WIN)
+    assert res.skipped_folds == [0]
+    assert len(res.folds) == 2
+    assert res.to_dict()["skipped_folds"] == [0]
+    # Todos os folds inválidos → ValueError mesmo com skip.
+    with pytest.raises(ValueError):
+        walk_forward_with_reopt(data, space, n_folds=3, optimizer="grid",
+                                metric_to_optimize="sharpe",
+                                evaluator=lambda *a, **k: _fake_metrics(1.0, trades=0),
+                                skip_invalid_folds=True, **_SMALL_WIN)
+    print("  [OK] test_skip_invalid_folds_registers_and_continues")
+
+
 def test_optimize_window_error_branches():
     """API pública: optimizer desconhecido e janela sem combo válido → ValueError."""
     data = _idx_df(60)
@@ -330,6 +364,7 @@ _TESTS = [
     test_dsr_penalizes_many_trials,
     test_compute_degradation_bands,
     test_to_dataframe_and_dict_smoke,
+    test_skip_invalid_folds_registers_and_continues,
     test_optimize_window_error_branches,
     test_default_evaluator_real_path,
 ]

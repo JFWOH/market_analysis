@@ -87,6 +87,7 @@ class WalkForwardResult:
     oos_pf_mean: float
     degradation_pct: float
     param_stability_score: float
+    skipped_folds: list[int] = field(default_factory=list)  # folds sem combo válido (registro)
 
     def to_dataframe(self) -> pd.DataFrame:
         """Uma linha por fold (datas, sharpe/PF IS e OOS, best_params)."""
@@ -115,6 +116,7 @@ class WalkForwardResult:
             "oos_pf_mean": round(self.oos_pf_mean, 6),
             "degradation_pct": round(self.degradation_pct, 4),
             "param_stability_score": round(self.param_stability_score, 6),
+            "skipped_folds": list(self.skipped_folds),
             "n_folds": len(self.folds),
             "folds": [
                 {
@@ -441,27 +443,44 @@ def walk_forward_with_reopt(
     capital: float = 100_000.0,
     evaluator: Callable | None = None,
     verbose: bool = False,
+    skip_invalid_folds: bool = False,
 ) -> WalkForwardResult:
     """Walk-forward anchored com re-otimização em cada janela IS.
 
     Para cada fold: otimiza no IS (``optimize_window``) → aplica best_params no OOS →
     registra IS/OOS metrics + top-K. ``base_params`` = base SPRINT13 (os knobs do
     param_space prevalecem). Determinístico (TPESampler(seed), sem ``random`` global).
+
+    ``skip_invalid_folds`` (opt-in, S21-CP4): fold cuja janela IS não produz NENHUM combo
+    com trades suficientes é REGISTRADO em ``skipped_folds`` e excluído das médias, em vez
+    de abortar o run. Caso real: VALE3 — o sistema mal opera no ticker (S19: 16 trades em
+    8 anos); janelas IS curtas não têm trades para otimizar. O registro é parte do achado,
+    não maquiagem. Default False preserva o comportamento original (ValueError).
     """
     fold_pos = generate_folds(len(data), n_folds, is_window_bars,
                               oos_window_bars, embargo_bars, anchored)
     evaluator = evaluator or _default_evaluator
     folds: list[WalkForwardFold] = []
+    skipped: list[int] = []
 
     for fid, (is_s, is_e, oos_s, oos_e) in enumerate(fold_pos):
         is_df = data.iloc[is_s:is_e]
         oos_df = data.iloc[oos_s:oos_e]
 
-        best_params, is_metrics, top_k_params = optimize_window(
-            is_df, param_space, ticker=ticker, base_params=base_params,
-            optimizer=optimizer, n_trials_optuna=n_trials_optuna,
-            metric_to_optimize=metric_to_optimize, seed=seed, top_k=top_k,
-            capital=capital, evaluator=evaluator)
+        try:
+            best_params, is_metrics, top_k_params = optimize_window(
+                is_df, param_space, ticker=ticker, base_params=base_params,
+                optimizer=optimizer, n_trials_optuna=n_trials_optuna,
+                metric_to_optimize=metric_to_optimize, seed=seed, top_k=top_k,
+                capital=capital, evaluator=evaluator)
+        except ValueError as exc:
+            if not (skip_invalid_folds and "nenhum combo" in str(exc)):
+                raise
+            skipped.append(fid)
+            if verbose:   # pragma: no cover — logging de execução
+                print(f"  fold {fid}: PULADO — sem combo válido na janela IS "
+                      f"({data.index[is_s].date()}->{data.index[is_e - 1].date()})")
+            continue
 
         oos_metrics = evaluator(oos_df, best_params, ticker, base_params, capital) or {}
 
@@ -479,6 +498,11 @@ def walk_forward_with_reopt(
                   f"OOS Sharpe={_g(oos_metrics,'sharpe_ratio'):+.3f} | "
                   f"{deg['interpretation']} | best={best_params}")
 
+    if not folds:
+        raise ValueError(
+            f"todos os {len(fold_pos)} folds foram pulados (nenhuma janela IS com combo "
+            f"válido) — não há o que medir neste ticker/param_space.")
+
     is_sharpe_mean = _mean_finite([_g(f.is_metrics, "sharpe_ratio") for f in folds])
     oos_sharpe_mean = _mean_finite([_g(f.oos_metrics, "sharpe_ratio") for f in folds])
     is_pf_mean = _mean_finite([_g(f.is_metrics, "profit_factor") for f in folds])
@@ -491,7 +515,8 @@ def walk_forward_with_reopt(
         is_pf_mean=is_pf_mean, oos_pf_mean=oos_pf_mean,
         degradation_pct=(deg["relative_degradation_pct"]
                          if np.isfinite(deg["relative_degradation_pct"]) else float("nan")),
-        param_stability_score=param_stability_score(folds, top_k=top_k))
+        param_stability_score=param_stability_score(folds, top_k=top_k),
+        skipped_folds=skipped)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

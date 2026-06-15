@@ -1,0 +1,132 @@
+# scenarios/bears_v2.yaml — Sprint 22: bears não-canônicos (validação expandida)
+#
+# Schema (validado por scripts.bear_market_validation_v2.load_scenarios):
+#   - id:       identificador único (str)
+#     name:     nome legível (str)
+#     ticker:   símbolo yfinance (str)
+#     start:    YYYY-MM-DD (str — manter entre aspas)
+#     end:      YYYY-MM-DD (str — manter entre aspas)
+#     category: enum [crash_linear, regional, mean_reverting_brutal, lost_decade, forex]
+#     notes:    contexto (opcional)
+#
+# Decisão C (Sprint 22): brl_crisis_2020_h2 é categoria `forex` (sanity-check
+# separado), NÃO `regional` — interpretado fora das contagens de aprovado/reprovado.
+# Total: 15 cenários | crash_linear 6 (5 controle + china_2015), regional 4,
+# mean_reverting_brutal 3, lost_decade 1, forex 1.
+
+scenarios:
+  # === Originais (controle — validados em S16/S18) ===
+  - id: gfc_2008_bvsp
+    name: "GFC 2008 — IBOVESPA"
+    ticker: "^BVSP"
+    start: "2008-06-01"
+    end: "2009-06-30"
+    category: crash_linear
+
+  - id: gfc_2008_gspc
+    name: "GFC 2008 — S&P 500"
+    ticker: "^GSPC"
+    start: "2008-06-01"
+    end: "2009-06-30"
+    category: crash_linear
+
+  - id: covid_2020_bvsp
+    name: "COVID 2020 — IBOVESPA"
+    ticker: "^BVSP"
+    start: "2020-01-01"
+    end: "2020-06-30"
+    category: crash_linear
+
+  - id: bear_2022_ixic
+    name: "2022 Tech Bear — NASDAQ"
+    ticker: "^IXIC"
+    start: "2022-01-01"
+    end: "2022-12-31"
+    category: crash_linear
+
+  - id: br_bear_2015
+    name: "2015-2016 Brazilian Bear"
+    ticker: "^BVSP"
+    start: "2015-01-01"
+    end: "2016-01-31"
+    category: crash_linear
+
+  # === Novos: regionais ===
+  - id: argentina_2001
+    name: "Argentina Convertibility Crisis"
+    ticker: "^MERV"
+    start: "2001-01-01"
+    end: "2002-06-30"
+    category: regional
+    notes: "Crise da paridade peso-dólar; default soberano"
+
+  - id: russia_2014
+    name: "Russia Ruble Crisis"
+    ticker: "IMOEX.ME"
+    start: "2014-06-01"
+    end: "2015-06-30"
+    category: regional
+    notes: "Sanções + colapso do petróleo"
+
+  - id: turkey_2018
+    name: "Turkey Lira Crisis"
+    ticker: "XU100.IS"
+    start: "2018-05-01"
+    end: "2019-01-31"
+    category: regional
+
+  - id: asia_1997_hsi
+    name: "Asia Financial Crisis — Hong Kong"
+    ticker: "^HSI"
+    start: "1997-07-01"
+    end: "1998-12-31"
+    category: regional
+
+  # === Novo: asiático crash linear ===
+  - id: china_2015
+    name: "China Stock Crash 2015-2016"
+    ticker: "000001.SS"
+    start: "2015-06-01"
+    end: "2016-02-29"
+    category: crash_linear
+
+  # === Novo: lost decade ===
+  - id: japan_lost_decade_segment
+    name: "Japan Lost Decade — segment 1995-2003"
+    ticker: "^N225"
+    start: "1995-01-01"
+    end: "2003-12-31"
+    category: lost_decade
+    notes: "Range deflacionário plurianual; tipicamente quebra trend-following"
+
+  # === Novos: mean-reverting brutais (categoria-teste central) ===
+  - id: euro_sovereign_2011
+    name: "European Sovereign Debt Crisis"
+    ticker: "^STOXX50E"
+    start: "2011-05-01"
+    end: "2012-12-31"
+    category: mean_reverting_brutal
+
+  - id: br_mini_bear_2011
+    name: "Brazil Mini-Bear 2011-2012"
+    ticker: "^BVSP"
+    start: "2011-04-01"
+    end: "2012-06-30"
+    category: mean_reverting_brutal
+
+  - id: vol_spike_2018_feb
+    name: "Volmageddon Feb 2018"
+    ticker: "^GSPC"
+    start: "2018-01-15"
+    end: "2018-04-30"
+    category: mean_reverting_brutal
+    notes: "Spike isolado de volatilidade; teste de filtros de regime"
+
+  # === Forex (sanity-check separado — decisão C) ===
+  - id: brl_crisis_2020_h2
+    name: "BRL Devaluation 2020 H2"
+    ticker: "BRL=X"
+    start: "2020-07-01"
+    end: "2020-12-31"
+    category: forex
+    notes: "Cenário forex; RELATORIO admite macro_lock falha e S14 deu 0 trades — confirmação com dados"

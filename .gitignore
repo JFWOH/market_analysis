@@ -55,6 +55,9 @@ findings/sprint_19_data/*.png
 # Sprint 20: scatter/residual/Q-Q são regeneráveis (python scripts/factor_decomposition.py
 # --ticker ^BVSP); a evidência versionada são os JSONs + decomposition_summary.csv.
 findings/sprint_20_data/*.png
+# Sprint 21: gráficos IS-vs-OOS por fold são regeneráveis (python scripts/compare_walkforward_methods.py);
+# a evidência versionada são os JSONs (compare_*.json) + walkforward_comparison.csv.
+findings/sprint_21_data/*.png
 graficos/
 data_cache/
 *.parquet

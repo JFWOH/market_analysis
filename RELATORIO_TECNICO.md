@@ -27,6 +27,8 @@ A configuração de referência (Sprint-13) apresenta o seguinte perfil empíric
 | Max Drawdown | <1% | 0.7–1.7% | 0.82% |
 | Alpha vs Buy-and-Hold | -30 a -60pp | **+19pp** | +0.55pp |
 
+> ⚠️ **O Sharpe `+1.72` acima não sobrevive a walk-forward honesto (Sprint 21).** O `+1.72` vem de uma janela OOS curta e favorável (reconciliação de janela do Sprint 19) e é mantido aqui como **registro histórico**; ele **não generaliza**. Em walk-forward anchored com re-otimização honesta (14 folds anuais, embargo 20 barras, seleção por Deflated Sharpe), o Sharpe OOS médio é **negativo nos três tickers — ^BVSP −0.21 / ^GSPC −0.41 / VALE3 n/a (não-amostra)**. Ver `findings/sprint_21_walkforward_honest.md` (Sprint 21).
+
 O perfil é qualificado como **"downside protection insurance"**: paga prêmio em bull markets (alpha negativo) e paga em sinistro (preservação assimétrica em crashes). Hipóteses híbridas (50/50 com B&H) foram testadas e empiricamente rejeitadas — o produto é a estratégia pura, com o blending ocorrendo no portfolio do cliente.
 
 ### 1.2 Validação contra crashes históricos (7 cenários)
@@ -335,6 +337,8 @@ Três metodologias complementares aplicadas em `expected_return_analysis.py`:
 2. **Walk-Forward 5-fold**: 5 splits sequenciais anchored — testa estabilidade temporal.
 3. **Monte Carlo**: 2000 simulações via (a) Bootstrap de trades reais, (b) GBM + jump diffusion para cenários prospectivos.
 
+> ⚠️ **Revisão metodológica (Sprint 21).** O walk-forward histórico (item 2) re-otimizava com grid mínimo e **sem embargo** entre IS e OOS. O Sprint 21 introduz `walkforward_honest.py` (anchored expanding, embargo de 20 barras, seleção por Deflated Sharpe) e os resultados **divergem materialmente**: o Sharpe OOS honesto é negativo nos três tickers testados (^BVSP/^GSPC/VALE3). Ver `findings/sprint_21_walkforward_honest.md`.
+
 #### 5.7.4 Stress Testing (`stress_test.py`)
 - **Bootstrap N=2000**: VaR 95%, CVaR 95%, MDD median, MDD p95, prob. de ruína
 - **GBM + Jump Diffusion**: σ histórica, μ histórico, λ_jump (frequência), jump size N(μj, σj²)
@@ -437,6 +441,7 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 - Não há análise de drawdown adjusted return (Ulcer Index, Pain Index) — poderia complementar Sharpe/Sortino.
 - Custos de transação modelados como percentual fixo (0.1%) — não capturam spread bid-ask dinâmico ou impacto de mercado para sizes maiores. **Sprint 19** quantificou a sensibilidade numa janela OOS longa (2018-2026, últimos 30% do histórico, **distinta da tabela 7.2**): nessa janela o ^BVSP não exibe edge (PF 0.82 baseline, 0.69 a slip 0.3%, 0.92 a custo zero) — ver `findings/sprint_19_cost_sensitivity.md`.
 - Exposição a fator e alpha: **Sprint 20** decompôs os retornos do sistema (CAPM, +momentum, vs sistema mínimo) em ^BVSP 2000-2026 (split IS/OOS 70/30): **nenhum alpha significativo** em qualquer modelo/segmento e **β≈0 contra todos os fatores** — o sistema fica flat ~72% das barras e tem retorno líquido levemente negativo. Ver `findings/sprint_20_factor_decomp.md`.
+- Estabilidade temporal sob re-otimização: **Sprint 21** aplicou walk-forward honesto (anchored expanding, 14 folds anuais 2012→2026, embargo 20 barras, seleção por Deflated Sharpe) em ^BVSP/^GSPC/VALE3 — **Sharpe OOS médio negativo nos três** (−0.21 / −0.41 / n/a), re-otimizar por janela é **igual ou pior** que fixar params (o IS positivo só existe como artefato de seleção), e `param_stability` 0.25–0.46 (abaixo do limiar de robustez 0.6). O "+1.72" da §1.1 não sobrevive a essa metodologia. Ver `findings/sprint_21_walkforward_honest.md`.
 
 **Sugestões de desenvolvimento:**
 1. Adicionar **regime classifier** mais sofisticado (Hidden Markov Model) para detecção probabilística de bear/bull/range.

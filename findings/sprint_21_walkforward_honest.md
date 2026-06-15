@@ -81,6 +81,11 @@ Fecha o arco do Bloco I: S19 (sem edge OOS a custo zero) → S20 (sem alpha a de
 6. **Folds pulados são registro, não omissão** (`skip_invalid_folds`, opt-in adicionado no
    CP4 por causa do VALE3): fold cuja janela IS não produz nenhum combo com ≥3 trades é
    contado e excluído das médias. VALE3: 11/14 pulados no honesto; 14/14 no fixo.
+7. **O único OOS médio positivo do E6 — ^GSPC fixo, +0.063 — é ruído, não edge.**
+   Registrado por ir contra a narrativa geral (auditoria registra o que aparece): o combo
+   foi selecionado com IS ≤0 (−0.20, `is_nao_positivo` — sem sinal a transferir), logo um
+   OOS marginalmente positivo, em 14 janelas anuais de pouquíssimos trades, é variância de
+   amostragem, não vantagem. Detalhe na §^GSPC dos resultados E6.
 
 ---
 
@@ -127,8 +132,12 @@ Gráfico: `findings/sprint_21_data/walkforward_bvsp.png` · JSON: `compare_bvsp.
 O caso mais didático: IS honesto quase nulo (+0.044) e OOS fortemente negativo (−0.405).
 Em um índice em bull secular (2010-2026), o sistema re-otimizado **ainda** entrega OOS
 negativo — o filtro de regime + saídas, com qualquer combinação dos 6 knobs, não converte
-o trend do S&P em retorno. O fixo tem OOS +0.06 (≈ zero): não operar quase nada é melhor
-que re-otimizar. Stability 0.45.
+o trend do S&P em retorno. **Registro honesto:** o fixo tem OOS **+0.063** — o único OOS
+médio positivo do E6, e vai contra a narrativa geral, por isso fica registrado. Não é
+edge: o combo foi selecionado com IS **negativo** (−0.20, `is_nao_positivo` — a seleção
+não continha sinal), e um OOS marginalmente positivo após seleção sem sinal, em 14
+janelas de poucos trades, é ruído de amostragem. A leitura que sobra: não operar quase
+nada (fixo) é melhor que re-otimizar (−0.405). Stability 0.45.
 Gráfico: `walkforward_gspc.png` · JSON: `compare_gspc.json`.
 
 ### VALE3.SA — 4081 barras, 14 folds → quase-não-amostra
@@ -199,14 +208,14 @@ generaliza** — é uma janela favorável, não uma propriedade do sistema.
 **Via híbrida (disciplina S18-S20), diff apresentado e aprovado ANTES de aplicar; números
 originais intactos como registro histórico; reescrita profunda deferida ao Marco:**
 
-- [ ] §1.1 (Perfil estratégico): blockquote ⚠️ ao lado da tabela — Sharpe OOS honesto
+- [x] §1.1 (Perfil estratégico): blockquote ⚠️ ao lado da tabela — Sharpe OOS honesto
   (S21: ^BVSP −0.21 / ^GSPC −0.41 / VALE3 n/a) AO LADO do +1.72, com cross-ref.
-- [ ] §5.7.3 (Validação OOS): nota metodológica — o walk-forward histórico re-otimizava
+- [x] §5.7.3 (Validação OOS): nota metodológica — o walk-forward histórico re-otimizava
   com grid mínimo/sem embargo; o S21 introduz `walkforward_honest.py` (anchored, embargo,
   DSR) e os resultados divergem materialmente.
-- [ ] §8.1 (Quants): bullet com os números S21 + cross-ref a este finding.
+- [x] §8.1 (Quants): bullet com os números S21 + cross-ref a este finding.
 
-(Checkboxes marcados quando o diff for aprovado e aplicado.)
+(Checkboxes marcados quando o diff for aprovado e aplicado — aplicados no commit de cross-refs S21.)
 
 ---
 
@@ -229,5 +238,5 @@ originais intactos como registro histórico; reescrita profunda deferida ao Marc
 
 - [ ] **Marco do Bloco I (pós-S22)**: decisão estrutural sobre a config Sprint-13 à luz de
   S18-S21; registro de que reabilitação exige hipótese nova + experimento meta-labeler.
-- [ ] Aplicar cross-refs do RELATORIO_TECNICO (após aprovação do diff).
+- [x] Aplicar cross-refs do RELATORIO_TECNICO (após aprovação do diff). → §1.1, §5.7.3, §8.1.
 - [ ] Sprint 22 (bears expandido): última peça do Bloco I.

@@ -202,14 +202,15 @@ def test_synthetic_meanrev_system_trades():
 # ──────────────────────────────────────────────────────────────────────────────
 
 def test_bootstrap_ci_deterministic_seed():
-    rets = np.array([0.02, -0.01, 0.03, -0.02, 0.015, 0.01, -0.005, 0.025, -0.012, 0.018])
-    a = bootstrap_sharpe_ci(rets, n_samples=500, rng=np.random.default_rng(7))
-    b = bootstrap_sharpe_ci(rets, n_samples=500, rng=np.random.default_rng(7))
+    # entrada agora = retornos DIÁRIOS da janela (b-coerente); ponto = Sharpe anualizado.
+    daily = np.array([0.02, -0.01, 0.03, -0.02, 0.015, 0.01, -0.005, 0.025, -0.012, 0.018])
+    a = bootstrap_sharpe_ci(daily, n_samples=500, rng=np.random.default_rng(7))
+    b = bootstrap_sharpe_ci(daily, n_samples=500, rng=np.random.default_rng(7))
     assert a == b                                   # mesma seed → idêntico
     lo, pt, hi = a
-    assert lo <= hi
+    assert lo <= pt <= hi                           # ponto (= headline) DENTRO do IC
     assert all(np.isfinite([lo, pt, hi]))
-    # < 2 trades finitos → NaN
+    # < 2 retornos finitos → NaN
     assert all(np.isnan(x) for x in bootstrap_sharpe_ci(np.array([0.01])))
 
 
@@ -261,6 +262,18 @@ def test_classify_status_faixas():
     assert classify_status(0.5, 20.0) == "reprovado"
     assert classify_status(0.5, 12.0) == "inconclusivo"
     assert classify_status(float("nan"), float("nan")) == "inconclusivo"
+
+
+def test_alpha_vs_bh_two_legs_eval():
+    """Alpha = retorno_estrategia(eval) - retorno_B&H(eval), ambas as pernas na janela.
+    Estrategia flat (sem sinais) + B&H em alta -> return_pct ~ 0 e alpha < 0."""
+    closes = list(np.linspace(100_000.0, 130_000.0, 60))   # B&H sobe ~30%
+    data = _series(closes)
+    sc = _scenario_for(data, "crash_linear")
+    out = run_scenario(data, sc, {}, strategy_factory=lambda d: _MockStrategy(d, []))
+    assert out["num_trades"] == 0
+    assert abs(out["return_pct"]) < 1e-6           # estrategia ficou flat
+    assert out["alpha_vs_bh_pp"] < 0               # ficou de fora da alta do B&H
 
 
 def test_forex_excluded_from_tally():

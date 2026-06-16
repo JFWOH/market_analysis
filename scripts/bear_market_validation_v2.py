@@ -15,9 +15,12 @@ Reuso (DRY, confirmado no plano CP1):
   • Custos (S19): ``Backtester(commission_pct=, slippage_pct=)`` em duas bases (0.1% e 0.3%).
   • ``SPRINT13_PARAMS``/``CAPITAL``/``_bh_metrics`` de ``scripts/bear_market_validation.py``.
 
-Métrica de Sharpe: a coluna ``sharpe`` é o Sharpe **anualizado** do backtester (headline,
-comparável a S18/S21). O IC (``sharpe_ci_*``) é **trade-level** — bootstrap dos retornos por
-trade — uma banda de dispersão/robustez, distinta do headline (documentado no finding).
+Métricas (item 1, S22 — TUDO na janela de eval [start, end]): ``sharpe`` é o Sharpe
+**anualizado √252** dos retornos diários da janela; o IC (``sharpe_ci_*``) é o bootstrap
+DESSES mesmos retornos diários, anualizado — logo ``sharpe_ci_point`` == ``sharpe`` e a banda
+é coerente (ponto dentro do IC). ``return_pct``/``alpha`` são variação de equity na janela
+(alpha = estrategia - B&H, ambas no eval). Trades (num_trades/win_rate/pf) são atribuídos
+por DATA DE SAÍDA na janela (descritivos; não entram no status).
 
 Uso:
     python scripts/bear_market_validation_v2.py
@@ -181,6 +184,43 @@ def load_base_config(name: str = "sprint_13_reference") -> dict:
 # E2 — Núcleo de execução por cenário (puro; sem rede)
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _annualized_sharpe(daily_returns, periods_per_year: int = 252) -> float:
+    """Sharpe anualizado (√periods_per_year) de uma série de retornos diários.
+    NaN se < 2 retornos finitos; 0.0 se desvio-padrão ~0 (série constante)."""
+    r = np.asarray(daily_returns, dtype=float)
+    r = r[np.isfinite(r)]
+    if r.size < 2:
+        return float("nan")
+    sd = r.std(ddof=1)
+    return float(r.mean() / sd * np.sqrt(periods_per_year)) if sd > 1e-12 else 0.0
+
+
+def _in_window(dt, start_ts: pd.Timestamp, end_ts: pd.Timestamp) -> bool:
+    """True se ``dt`` (data de saída do trade) cai em [start_ts, end_ts]."""
+    if dt is None:
+        return False
+    return bool(start_ts <= pd.Timestamp(dt) <= end_ts)
+
+
+def _pf_winrate(trades: list[dict]) -> tuple[int, float, float]:
+    """(num_trades, win_rate, profit_factor) sobre trades fechados. win = pnl>0;
+    PF = lucro_bruto/|perda_bruta| (inf se sem perdas; NaN se vazio)."""
+    if not trades:
+        return (0, float("nan"), float("nan"))
+    pnls = [float(t.get("pnl", 0.0)) for t in trades]
+    n = len(pnls)
+    gross_profit = sum(p for p in pnls if p > 0)
+    gross_loss = abs(sum(p for p in pnls if p <= 0))
+    win_rate = sum(1 for p in pnls if p > 0) / n
+    if gross_loss > 1e-12:
+        pf = gross_profit / gross_loss
+    elif gross_profit > 0:
+        pf = float("inf")
+    else:
+        pf = float("nan")
+    return (n, win_rate, pf)
+
+
 def run_scenario(
     df: pd.DataFrame,
     scenario: Scenario,
@@ -193,19 +233,21 @@ def run_scenario(
 ) -> dict:
     """Roda UM cenário sobre ``df`` in-memory (já com warmup antes de ``scenario.start``).
 
-    Backtest com a base Sprint-13 → métricas. MDD dual + time-in-market via
-    ``compute_drawdown_dual`` nas curvas RECORTADAS à janela de eval ``[start, end]``
-    (fiel ao S18). ``sharpe``/``pf``/``win_rate``/``return``/``num_trades`` vêm da rodada
-    completa. Alpha vs B&H via ``_bh_metrics`` no eval.
+    TODAS as métricas são da JANELA DE EVAL ``[start, end]`` (decisão item 1, S22):
+      • ``sharpe``: retornos diários da janela, anualizados √252 (= ponto do IC bootstrap);
+      • ``return_pct``: variação de equity sobre a janela;
+      • ``alpha_vs_bh_pp``: retorno_estrategia(eval) - retorno_B&H(eval) (ambas as pernas no eval);
+      • ``num_trades``/``win_rate``/``profit_factor``: trades com DATA DE SAÍDA na janela (descritivo);
+      • ``mdd_equity``/``mdd_car``/``time_in_market``: ``compute_drawdown_dual`` na janela (S18).
 
     ``strategy_factory`` é um *seam* de teste: ``(df) -> strategy``. None no uso de produção
-    (constrói ``CombinedStrategy`` + base_params). Não interfere no caminho de produção.
+    (constrói ``CombinedStrategy`` + base_params).
 
     Returns
     -------
     dict com num_trades, sharpe, profit_factor, win_rate, return_pct, mdd_equity_pct,
     mdd_car_pct (NaN se nunca houve posição), time_in_market_pct, alpha_vs_bh_pp e
-    trade_returns (np.ndarray de pnl/amount por trade, para o bootstrap).
+    daily_returns (np.ndarray de retornos diários da janela, base do IC bootstrap).
     """
     if strategy_factory is not None:
         strat = strategy_factory(df)
@@ -219,7 +261,7 @@ def run_scenario(
         strat, initial_capital=capital, cooldown_bars=cooldown_bars,
         commission_per_trade=0.0, commission_pct=commission_pct, slippage_pct=slippage_pct,
     )
-    m = bt.run()
+    bt.run()
 
     start_ts, end_ts = pd.Timestamp(scenario.start), pd.Timestamp(scenario.end)
     eq = pd.Series(bt.equity, index=bt.equity_dates)
@@ -232,59 +274,61 @@ def run_scenario(
         mdd_eq = _num(dual["total_equity_mdd"])
         mdd_car = _num(dual["capital_at_risk_mdd"])
         tim = _num(dual["time_in_market_pct"])
-    else:  # janela curtíssima — cai p/ métricas da rodada completa
-        mdd_eq = _num(m.get("max_drawdown_total_equity_pct"))
-        mdd_car = _num(m.get("max_drawdown_capital_at_risk_pct"))
-        tim = float("nan")
+        daily_rets = eq_e.pct_change().dropna().to_numpy()
+        ret_pct = (float(eq_e.iloc[-1] / eq_e.iloc[0] - 1.0) * 100.0
+                   if eq_e.iloc[0] != 0 else float("nan"))
+    else:  # janela curtíssima — sem base para métricas de janela
+        mdd_eq = mdd_car = tim = float("nan")
+        daily_rets = np.array([], dtype=float)
+        ret_pct = float("nan")
 
-    ret_pct = _num(m.get("return_pct")) * 100.0
+    sharpe = _annualized_sharpe(daily_rets)
+
     closes_e = df["Close"][(df.index >= start_ts) & (df.index <= end_ts)]
     bh_ret = _bh_metrics(closes_e, capital)["ret_pct"] if len(closes_e) >= 1 else float("nan")
     alpha_pp = ret_pct - bh_ret
 
-    trade_returns = np.array(
-        [t["pnl"] / t["amount"] for t in bt.trades if t.get("amount")], dtype=float
-    )
+    eval_trades = [t for t in bt.trades if _in_window(t.get("exit_date"), start_ts, end_ts)]
+    num_trades, win_rate, pf = _pf_winrate(eval_trades)
 
     return {
-        "num_trades": int(m.get("trade_count", len(bt.trades)) or 0),
-        "sharpe": _num(m.get("sharpe_ratio")),
-        "profit_factor": _num(m.get("profit_factor")),
-        "win_rate": _num(m.get("win_rate")),
+        "num_trades": num_trades,
+        "sharpe": sharpe,
+        "profit_factor": pf,
+        "win_rate": win_rate,
         "return_pct": ret_pct,
         "mdd_equity_pct": mdd_eq,
         "mdd_car_pct": mdd_car,
         "time_in_market_pct": tim,
         "alpha_vs_bh_pp": alpha_pp,
-        "trade_returns": trade_returns,
+        "daily_returns": daily_rets,
     }
 
 
 def bootstrap_sharpe_ci(
-    trade_returns, n_samples: int = 1000,
+    daily_returns, n_samples: int = 1000,
     rng: np.random.Generator | None = None, ci: float = 0.95,
+    periods_per_year: int = 252,
 ) -> tuple[float, float, float]:
-    """IC bootstrap (trade-level) do Sharpe por reamostragem com reposição dos
-    retornos por trade. Retorna ``(low, point, high)``.
+    """IC bootstrap do Sharpe ANUALIZADO, reamostrando com reposição os retornos
+    DIÁRIOS da janela de eval (mesma base do headline) e anualizando por
+    √``periods_per_year``. Retorna ``(low, point, high)`` na escala anualizada.
 
-    Determinístico para uma dada ``rng`` (``np.random.default_rng(42)`` default).
-    ``(NaN, NaN, NaN)`` se houver < 2 trades finitos.
+    ``point`` = Sharpe anualizado da série observada = a coluna ``sharpe`` (coerência:
+    o ponto fica dentro da banda). Determinístico para uma dada ``rng``
+    (``np.random.default_rng(42)`` default). ``(NaN, NaN, NaN)`` se < 2 retornos finitos.
     """
     rng = rng if rng is not None else np.random.default_rng(42)
-    rets = np.asarray(trade_returns, dtype=float)
+    rets = np.asarray(daily_returns, dtype=float)
     rets = rets[np.isfinite(rets)]
     if rets.size < 2:
         return (float("nan"), float("nan"), float("nan"))
 
-    def _sharpe(a: np.ndarray) -> float:
-        sd = a.std(ddof=1)
-        return float(a.mean() / sd) if sd > 1e-12 else 0.0
-
-    point = _sharpe(rets)
+    point = _annualized_sharpe(rets, periods_per_year)
     n = rets.size
     samples: np.ndarray = np.empty(n_samples, dtype=float)
     for i in range(n_samples):
-        samples[i] = _sharpe(rng.choice(rets, size=n, replace=True))
+        samples[i] = _annualized_sharpe(rng.choice(rets, size=n, replace=True), periods_per_year)
     alpha = (1.0 - ci) / 2.0 * 100.0
     lo = float(np.percentile(samples, alpha))
     hi = float(np.percentile(samples, 100.0 - alpha))
@@ -519,7 +563,7 @@ def run_all(
                             commission_pct=commission_pct, strategy_factory=strategy_factory)
         stress = run_scenario(df, sc, base_params, slippage_pct=stress_slip,
                               commission_pct=commission_pct, strategy_factory=strategy_factory)
-        ci = bootstrap_sharpe_ci(base["trade_returns"], n_samples=n_bootstrap, rng=rng)
+        ci = bootstrap_sharpe_ci(base["daily_returns"], n_samples=n_bootstrap, rng=rng)
         status = classify_status(base["sharpe"], base["mdd_car_pct"])
         rows.append(_assemble_row(sc, source, len(df), base, stress, ci, status))
 

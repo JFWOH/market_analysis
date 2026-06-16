@@ -174,7 +174,7 @@ def load_base_config(name: str = "sprint_13_reference") -> dict:
     """Config 'base auditada' do S22 (decisão A). Reusa o registry de
     ``cost_sensitivity._load_config`` — "validada" = base que passou pela auditoria,
     NÃO "aprovada" (S21: nenhuma config tem edge OOS)."""
-    return _load_config(name)
+    return dict(_load_config(name))
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -282,7 +282,7 @@ def bootstrap_sharpe_ci(
 
     point = _sharpe(rets)
     n = rets.size
-    samples = np.empty(n_samples, dtype=float)
+    samples: np.ndarray = np.empty(n_samples, dtype=float)
     for i in range(n_samples):
         samples[i] = _sharpe(rng.choice(rets, size=n, replace=True))
     alpha = (1.0 - ci) / 2.0 * 100.0
@@ -378,7 +378,7 @@ def scatter_sharpe_tim(rows: list[dict], out_path: str, title: str = "") -> str:
     fig, ax = plt.subplots(figsize=(9, 6))
     for r in data:
         ax.scatter(_num(r["time_in_market_pct"]), _num(r["sharpe"]),
-                   c=CATEGORY_COLORS.get(r.get("category"), "#000000"),
+                   c=CATEGORY_COLORS.get(r.get("category", ""), "#000000"),
                    s=70, edgecolors="black", linewidths=0.5)
     ax.axhline(0.0, color="black", alpha=0.5)
     ax.set_xlabel("Time-in-market (%)")
@@ -430,7 +430,7 @@ def category_medians_bar(rows: list[dict], out_path: str, value_key: str = "shar
 
 def _unavailable_row(sc: Scenario, source: str) -> dict:
     """Linha de cenário com dados indisponíveis (gate S18) — sem números fabricados."""
-    row = {c: float("nan") for c in CSV_COLUMNS}
+    row: dict[str, object] = {c: float("nan") for c in CSV_COLUMNS}
     row.update({
         "scenario_id": sc.id, "name": sc.name, "ticker": sc.ticker, "category": sc.category,
         "start": sc.start, "end": sc.end, "source": source, "n_bars": 0,
@@ -470,7 +470,8 @@ def summarize_coverage(rows: list[dict]) -> dict:
     cats_present = {r.get("category") for r in core}
     tally = {"aprovado": 0, "reprovado": 0, "inconclusivo": 0}
     for r in core:
-        tally[r.get("status", "inconclusivo")] = tally.get(r.get("status"), 0) + 1
+        key = r.get("status", "inconclusivo")
+        tally[key] = tally.get(key, 0) + 1
     return {
         "total": len(rows),
         "executed": len(executed),

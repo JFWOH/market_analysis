@@ -58,6 +58,9 @@ findings/sprint_20_data/*.png
 # Sprint 21: gráficos IS-vs-OOS por fold são regeneráveis (python scripts/compare_walkforward_methods.py);
 # a evidência versionada são os JSONs (compare_*.json) + walkforward_comparison.csv.
 findings/sprint_21_data/*.png
+# Sprint 22: forest plots/scatter/bar são regeneráveis (python scripts/bear_market_validation_v2.py);
+# a evidência versionada é o CSV (bears_complete.csv) + as tabelas no finding.
+findings/sprint_22_data/plots/*.png
 graficos/
 data_cache/
 *.parquet

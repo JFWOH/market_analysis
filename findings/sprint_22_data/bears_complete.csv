@@ -1,0 +1,16 @@
+scenario_id,name,ticker,category,start,end,source,n_bars,num_trades,sharpe,sharpe_ci_low,sharpe_ci_point,sharpe_ci_high,profit_factor,win_rate,return_pct,alpha_vs_bh_pp,mdd_equity_pct,mdd_car_pct,time_in_market_pct,sharpe_slip03,pf_slip03,status
+gfc_2008_bvsp,GFC 2008 — IBOVESPA,^BVSP,crash_linear,2008-06-01,2009-06-30,yfinance,387,17,0.2171,-1.6855,0.2171,2.0727,1.1039,0.5882,0.1708,27.6532,0.4364,19.5095,25.28,-0.7546,0.6051,reprovado
+gfc_2008_gspc,GFC 2008 — S&P 500,^GSPC,crash_linear,2008-06-01,2009-06-30,yfinance,395,16,-0.2536,-2.0993,-0.2536,1.6864,0.8658,0.625,-0.2198,32.8645,0.9526,21.7467,26.1,-0.5104,0.719,reprovado
+covid_2020_bvsp,COVID 2020 — IBOVESPA,^BVSP,crash_linear,2020-01-01,2020-06-30,yfinance,244,11,-0.7174,-3.9409,-0.7174,2.0627,0.9297,0.6364,-0.3544,18.9063,0.9685,22.7953,31.15,-0.8861,0.8101,reprovado
+bear_2022_ixic,2022 Tech Bear — NASDAQ,^IXIC,crash_linear,2022-01-01,2022-12-31,yfinance,377,13,-1.302,-3.1378,-1.302,0.5894,0.419,0.3846,-0.8542,33.0395,1.4889,17.4987,21.51,-1.5004,0.3718,reprovado
+br_bear_2015,2015-2016 Brazilian Bear,^BVSP,crash_linear,2015-01-01,2016-01-31,yfinance,388,15,0.7838,-1.1867,0.7838,2.6875,1.7122,0.8,0.6654,17.3746,0.3716,4.1856,29.06,0.7771,1.6433,aprovado
+argentina_2001,Argentina Convertibility Crisis,^MERV,regional,2001-01-01,2002-06-30,yfinance,471,24,1.5093,-0.1137,1.5093,3.2696,2.9336,0.7917,1.6112,17.8403,0.5226,7.3171,21.49,1.4138,2.7739,aprovado
+russia_2014,Russia Ruble Crisis,IMOEX.ME,regional,2014-06-01,2015-06-30,yfinance,384,20,0.2126,-1.7564,0.2126,2.0869,1.2013,0.6,0.1668,-11.473,0.9687,5.681,23.22,-0.4206,0.7975,aprovado
+turkey_2018,Turkey Lira Crisis,XU100.IS,regional,2018-05-01,2019-01-31,yfinance,312,12,0.0969,-2.3016,0.0969,2.2799,1.0572,0.6667,0.0398,0.5517,0.7473,7.6958,25.13,-0.7909,0.6574,aprovado
+asia_1997_hsi,Asia Financial Crisis — Hong Kong,^HSI,regional,1997-07-01,1998-12-31,yfinance,493,27,1.0807,-0.5039,1.0807,2.58,1.8508,0.6667,1.2522,34.5095,0.4072,6.8681,19.68,1.0873,1.8915,aprovado
+china_2015,China Stock Crash 2015-2016,000001.SS,crash_linear,2015-06-01,2016-02-29,yfinance,300,13,0.6079,-1.7763,0.6079,2.6786,1.5782,0.6923,0.321,45.5819,0.4083,13.2262,38.12,0.4048,1.365,inconclusivo
+japan_lost_decade_segment,Japan Lost Decade — segment 1995-2003,^N225,lost_decade,1995-01-01,2003-12-31,yfinance,2342,140,-0.324,-0.9535,-0.324,0.2957,0.8592,0.6071,-2.115,43.6449,2.7658,13.795,26.18,-0.6277,0.6905,reprovado
+euro_sovereign_2011,European Sovereign Debt Crisis,^STOXX50E,mean_reverting_brutal,2011-05-01,2012-12-31,yfinance,542,12,-1.441,-2.8285,-1.441,0.1207,0.2132,0.25,-1.475,11.2221,1.475,7.6076,16.55,-1.5249,0.2283,reprovado
+br_mini_bear_2011,Brazil Mini-Bear 2011-2012,^BVSP,mean_reverting_brutal,2011-04-01,2012-06-30,yfinance,431,22,-0.2696,-2.1632,-0.2696,1.4412,0.9289,0.6364,-0.2481,21.2814,1.0414,4.5837,22.58,-0.0297,1.0481,reprovado
+vol_spike_2018_feb,Volmageddon Feb 2018,^GSPC,mean_reverting_brutal,2018-01-15,2018-04-30,yfinance,196,9,-0.8932,-6.0525,-0.8932,2.1544,0.9385,0.5556,-0.2765,3.5597,0.5484,4.5488,36.11,-1.6301,0.656,reprovado
+brl_crisis_2020_h2,BRL Devaluation 2020 H2,BRL=X,forex,2020-07-01,2020-12-31,yfinance,260,3,-0.5703,-2.8691,-0.5703,2.3927,0.581,0.3333,-0.1689,2.1892,0.2936,2.5253,16.79,-0.0755,0.9724,reprovado

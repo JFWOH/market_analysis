@@ -1,8 +1,14 @@
 # ROADMAP — Programa de Evolução `market\\\\\\\_analysis`
 
 **Versão**: 1.0
-**Última atualização**: 2026-05-13
+**Última atualização**: 2026-06-21
 **Período coberto**: Sprints 18-33 (16 sprints, \~16-21 semanas)
+
+\---
+
+> # ⛔ PROGRAMA SUSPENSO SOB CENÁRIO C (2026-06-21)
+>
+> O **Marco do Bloco I** (`findings/MARCO_BLOCO_I.md`) concluiu **Cenário C — sem edge demonstrável** na config Sprint-13. A **produtização está encerrada**: os **Blocos II (Sprints 23-26) e III (Sprints 27-33) ficam SUSPENSOS** — preservados abaixo como registro, **não deletados** (reversibilidade). O aparato de validação do Bloco I é ativo herdável; o programa migra para uma tese nova (método Ogro) validada do zero sob o mesmo crisol.
 
 \---
 
@@ -49,7 +55,7 @@
 |19|Sensibilidade a custos (slippage + comissão)|3-4|`findings/sprint\\\\\\\\\\\\\\\_19\\\\\\\\\\\\\\\_cost\\\\\\\\\\\\\\\_sensitivity.md`|✅ v0.19.0|
 |20|Decomposição fatorial (alpha vs exposição)|5-7|`findings/sprint\\\\\\\\\\\\\\\_20\\\\\\\\\\\\\\\_factor\\\\\\\\\\\\\\\_decomp.md`|✅ v0.20.0 |
 |21|Walk-forward com re-otimização honesta|7-10|`findings/sprint\\\\\\\\\\\\\\\_21\\\\\\\\\\\\\\\_walkforward\\\\\\\\\\\\\\\_honest.md`|✅ v0.21.0|
-|22|Bears não-canônicos (15+ cenários)|5-7|`findings/sprint\\\\\\\\\\\\\\\_22\\\\\\\\\\\\\\\_bears\\\\\\\\\\\\\\\_complete.md`|⬜|
+|22|Bears não-canônicos (15+ cenários)|5-7|`findings/sprint\\\\\\\\\\\\\\\_22\\\\\\\\\\\\\\\_bears\\\\\\\\\\\\\\\_complete.md`|✅ v0.22.0|
 
 **Marco final**: `findings/MARCO\\\\\\\_BLOCO\\\\\\\_I.md` define se Bloco II prossegue com:
 
@@ -57,9 +63,13 @@
 * Cenário B — Sistema é laboratório (alpha parcialmente artefato; UI vira ferramenta de pesquisa)
 * Cenário C — Sistema precisa rework (suspender II e III)
 
+**✅ DECISÃO (2026-06-21): Cenário C.** Bloco I concluiu sem edge demonstrável na config Sprint-13; produtização encerrada, Blocos II/III suspensos (preservados, não deletados). Ver `findings/MARCO_BLOCO_I.md`.
+
 \---
 
-## Bloco II — Hardening (Sprints 23-26)
+## ⛔ Bloco II — Hardening (Sprints 23-26) — SUSPENSO sob Cenário C
+
+> Preservado como registro (não deletado). Não inicia sob Cenário C — ver banner no topo e `findings/MARCO_BLOCO_I.md`.
 
 |Sprint|Tema|Dias|Saída crítica|
 |-|-|-:|-|
@@ -70,7 +80,9 @@
 
 \---
 
-## Bloco III — Interface Gráfica (Sprints 27-33)
+## ⛔ Bloco III — Interface Gráfica (Sprints 27-33) — SUSPENSO sob Cenário C
+
+> Preservado como registro (não deletado). Não inicia sob Cenário C — ver banner no topo e `findings/MARCO_BLOCO_I.md`.
 
 |Sprint|Tema|Dias|Saída crítica|
 |-|-|-:|-|

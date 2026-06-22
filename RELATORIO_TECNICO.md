@@ -11,6 +11,8 @@
 
 ## 1. Sumário Executivo
 
+> 🔴 **Bloco I (auditoria, Sprints 18-22) concluído — veredito: Cenário C (sem edge demonstrável).** Os números deste relatório (Sharpe 1.72, PF 2.17, MDD <1%) são **registro histórico**: a auditoria honesta (MDD-CAR dual, sensibilidade a custos, decomposição fatorial, walk-forward honesto, 15 bears não-canônicos) concluiu que a config Sprint-13 **não tem edge demonstrável** e **encerrou a linha de produtização** (sprints 23-33 suspensos). Decisão consolidada e justificada em `findings/MARCO_BLOCO_I.md`.
+
 O `market_analysis` é um sistema integrado de pesquisa quantitativa, backtesting, geração de sinais e execução simulada (paper trading) para mercados financeiros, com foco primário no mercado brasileiro (B3) mas com generalização demonstrada para mercados internacionais (^GSPC, ^IXIC) e forex (BRL=X). O sistema é desenvolvido em Python 3.10+, modularizado em ~19 mil linhas de código produtivo, com 519 testes unitários (100% passando) e 17 sprints de evolução documentados em commits.
 
 ### 1.1 Perfil estratégico validado
@@ -400,6 +402,8 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 
 > ⚠️ **Robustez a custos (Sprint 19).** Sob varredura comissão×slippage numa janela OOS de **~8 anos (2018-07-04 a 2026-05-29, últimos 30% do histórico completo 2000-2026)** — distinta e muito mais longa que a janela curta por trás das tabelas 7.1/7.2 (`expected_return_analysis.py` usa só os últimos ~730 dias e tira OOS dos últimos 30% disso, ~7 meses) e com modelo de custo diferente (comissão percentual, R$ absoluto zerado) — a config Sprint-13 **não exibe edge no ^BVSP nessa janela longa**: PF 0.82 no baseline (slip/comm 0.1%), 0.69 a slip 0.3%, e 0.92 (ainda <1.0) mesmo a custo zero. Apenas 1 de 3 tickers (VALE3.SA) passa o teste de PF>1.0 a slip 0.3%, com retorno absoluto desprezível. **Isto não é refutação direta da tabela 7.2** (janela e metodologia diferentes) — a reconciliação e a reescrita do posicionamento de robustez ficam deferidas ao Marco do Bloco I (pós-S22). Ver `findings/sprint_19_cost_sensitivity.md`.
 
+> 🔴 **Auditoria do Bloco I concluída (Sprints 18-22) — veredito: Cenário C (sem edge demonstrável).** Os números desta seção (PF 2.119/2.77, Sharpe +1.724/+2.39) ficam como **registro histórico**: a auditoria honesta (MDD-CAR dual, sensibilidade a custos, decomposição fatorial, walk-forward honesto, 15 bears não-canônicos) concluiu que a config Sprint-13 **não tem edge demonstrável** e **encerrou a linha de produtização** (sprints 23-33 suspensos). Decisão consolidada em `findings/MARCO_BLOCO_I.md`. A subseção 7.4 abaixo traz a validação expandida do S22.
+
 ### 7.1 Evolução do Profit Factor OOS no IBOVESPA
 
 | Sprint | Mudança | OOS PF | OOS Sharpe | OOS Win Rate |
@@ -423,6 +427,30 @@ Esta cadeia permite auditoria histórica completa: `git log --oneline` mostra 17
 1. **Forex (BRL=X)**: o `macro_direction_lock` exige retorno cumulativo de 8% em 60 bars — USDBRL oscila em banda mais estreita. Apenas 3 trades em ~150 bars. Solução pendente: filtros adaptativos por classe de ativo (ranges Bollinger %B ao invés de retorno cumulativo).
 2. **Underperformance em bull markets lineares**: alpha negativo persistente (-30 a -60pp vs B&H) em períodos de upside contínuo. Esperado para perfil "low-beta steady alpha".
 3. **Fibonacci no IBOVESPA diário**: três variantes testadas (strict, bypass, macro-window) — nenhuma adiciona edge consistente. Indicador permanece opt-in para uso em forex/intraday.
+4. **Mean-reverting brutal (Sprint 22)**: 0/3 (Euro 2011, BR 2011-12, Volmageddon 2018) — o filtro ADX/Hurst não impede entradas que revertem; Sharpe OOS negativo nos três. Falha estrutural, não recuperável por re-tuning (ver S21). Ver `findings/sprint_22_bears_complete.md`.
+5. **Crashes canônicos sob capital-em-risco (Sprint 22)**: GFC 2008 / COVID 2020 / bear 2022 reprovam (MDD-CAR > 15%, S18) apesar de alpha positivo vs B&H — "protetor relativo", não "imune".
+
+### 7.4 Validação expandida cross-categoria (Sprint 22)
+
+> ⚠️ **15 cenários, 5 categorias, config base auditada Sprint-13, métricas na janela de eval.**
+> A categoria-teste central **mean-reverting brutal falha 3/3** (Sharpe OOS negativo); os crashes
+> canônicos majoritariamente **reprovam sob capital-em-risco** (MDD-CAR > 15%, ver S18), apesar de
+> alpha vs B&H positivo em 13/15. Apenas **5/14 cenários-núcleo aprovados (35,7%)** — input direto
+> do Cenário C. Números S14 da tabela 7.2 preservados; a metodologia do S22 (janela de eval anual,
+> MDD-CAR, IC bootstrap) difere e não é comparável célula a célula. Ver `findings/sprint_22_bears_complete.md`.
+
+| Categoria | Cenários | Aprovados | Sharpe (IC cruza 0) | Observação |
+|---|---|---:|---|---|
+| Crash linear | 6 | 1 | ~0 | GFC/COVID/2022 reprovam por MDD-CAR ~17-23% |
+| Regional | 4 | 4 | +0.2 a +1.5 | única categoria limpa |
+| **Mean-reverting brutal** | 3 | **0** | **negativa** | calcanhar confirmado |
+| Lost decade | 1 | 0 | −0.32 | Japão 1995-2003, sangria lenta |
+| Forex (à parte) | 1 | — | — | BRL=X: 3 trades, não opera a classe |
+
+**Nota metodológica:** métricas do S22 são da janela de eval (Sharpe anualizado + IC bootstrap dos
+retornos diários; alpha = estratégia−B&H ambos no eval) → `return_pct`/`num_trades`/Sharpe **diferem**
+de figuras full-run anteriores (7.1/7.2) — esperado, não contradição. **Quase todos os IC de Sharpe
+cruzam zero**: sem edge estatisticamente significativo.
 
 ---
 
